@@ -248,6 +248,82 @@ mcp:
 
 ---
 
+### 6. Telegram (Chat with Wilson from Your Phone!)
+
+**What you get:** Control Wilson from Telegram, get responses on your phone
+
+**Setup:**
+
+✅ **No API keys needed if you just want to send commands!**
+
+**But for full integration (Wilson can message you back):**
+
+1. **Create Telegram Bot:**
+   - Open Telegram and search for `@BotFather`
+   - Send `/newbot`
+   - Choose a name: "Wilson Assistant"
+   - Choose a username: `your_wilson_bot` (must end in `bot`)
+   - BotFather will give you a token like: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
+
+2. **Set environment variable:**
+   ```bash
+   export TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+   ```
+
+3. **Enable in Wilson:**
+   ```yaml
+   # go/config/tools.yaml
+   mcp:
+     servers:
+       telegram:
+         enabled: true
+   ```
+
+4. **Start Wilson** (keep it running)
+
+5. **Chat with your bot:**
+   - Open Telegram
+   - Search for your bot: `@your_wilson_bot`
+   - Send: `/start`
+   - Try: "List files in my home directory"
+
+**Available tools:**
+- `mcp_telegram_send_message` - Send message to chat
+- `mcp_telegram_get_updates` - Receive messages (polling)
+- `mcp_telegram_answer_callback_query` - Handle button presses
+- `mcp_telegram_edit_message` - Edit sent messages
+- And more!
+
+**How it works:**
+```
+You (Telegram) → Bot → Wilson (running on your computer)
+Wilson processes → Sends response → Bot → You (Telegram)
+```
+
+**Example usage:**
+```
+You (Telegram): "What's the status of my projects?"
+Wilson: [Uses filesystem tools to check]
+Wilson → Telegram: "Found 5 active projects..."
+
+You (Telegram): "Create a GitHub issue for the bug"
+Wilson: [Uses mcp_github_create_issue]
+Wilson → Telegram: "Issue #42 created"
+```
+
+**Pro tips:**
+- Wilson must be running on your computer to respond
+- Messages are processed in real-time
+- You can use all Wilson's capabilities remotely
+- Great for: checking logs, running commands, getting updates
+
+**Security note:**
+- Only you can message your bot by default
+- Add allowed users in bot settings if needed
+- Don't share your bot token
+
+---
+
 ## Finding More MCP Servers
 
 **Official servers:**

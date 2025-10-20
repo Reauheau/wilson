@@ -210,6 +210,7 @@ Wilson supports the [Model Context Protocol](https://modelcontextprotocol.io) fo
 - **GitHub** - Issues, PRs, repos - Requires `GITHUB_TOKEN`
 - **Postgres** - Database queries - Requires `DATABASE_URL`
 - **Slack** - Send messages, read channels - Requires `SLACK_BOT_TOKEN`
+- **Telegram** - Chat with Wilson from your phone! - Requires `TELEGRAM_BOT_TOKEN`
 - **Memory** - Persistent key-value storage - No API keys needed
 - [View 20+ more servers](https://github.com/modelcontextprotocol/servers)
 

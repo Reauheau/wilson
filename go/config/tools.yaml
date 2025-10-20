@@ -186,5 +186,19 @@ mcp:
       args: ["-y", "@modelcontextprotocol/server-memory"]
       enabled: false  # Set to true to enable persistent memory
 
+    # Telegram MCP Server - Chat with Wilson from your phone!
+    # Requires: TELEGRAM_BOT_TOKEN environment variable
+    # Tools: send_message, get_updates, answer_callback_query, etc.
+    telegram:
+      name: "telegram"
+      command: "npx"
+      args: ["-y", "@chaindead/mcp-telegram"]
+      enabled: false  # Set to true and configure TELEGRAM_BOT_TOKEN to enable
+      env:
+        TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+        # Optional: Configure polling interval (default: 1000ms)
+        # TELEGRAM_POLLING_INTERVAL: "2000"
+
     # More MCP servers available at:
     # https://github.com/modelcontextprotocol/servers
+    # Community servers: https://github.com/chaindead (Telegram, Discord, etc.)
