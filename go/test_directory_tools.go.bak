@@ -1,0 +1,117 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+
+	_ "wilson/capabilities/filesystem"
+	"wilson/core/registry"
+)
+
+func main() {
+	fmt.Println("Testing Directory Tools")
+	fmt.Println("======================\n")
+
+	ctx := context.Background()
+
+	// Test 1: Create a simple directory
+	fmt.Println("Test 1: Creating directory 'test_dir'")
+	mkdirTool, err := registry.GetTool("make_directory")
+	if err != nil {
+		fmt.Printf("Error getting make_directory tool: %v\n", err)
+		return
+	}
+
+	result, err := mkdirTool.Execute(ctx, map[string]interface{}{
+		"path": "test_dir",
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		var parsed map[string]interface{}
+		json.Unmarshal([]byte(result), &parsed)
+		fmt.Printf("Success: %v\n", parsed["message"])
+	}
+	fmt.Println()
+
+	// Test 2: Create nested directories
+	fmt.Println("Test 2: Creating nested directory 'test_dir/nested/deep'")
+	result, err = mkdirTool.Execute(ctx, map[string]interface{}{
+		"path":        "test_dir/nested/deep",
+		"parent_dirs": true,
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		var parsed map[string]interface{}
+		json.Unmarshal([]byte(result), &parsed)
+		fmt.Printf("Success: %v\n", parsed["message"])
+	}
+	fmt.Println()
+
+	// Test 3: Get current directory
+	cwd, _ := os.Getwd()
+	fmt.Printf("Test 3: Current directory: %s\n", cwd)
+	fmt.Println()
+
+	// Test 4: Change directory to test_dir
+	fmt.Println("Test 4: Changing directory to 'test_dir'")
+	chdirTool, err := registry.GetTool("change_directory")
+	if err != nil {
+		fmt.Printf("Error getting change_directory tool: %v\n", err)
+		return
+	}
+
+	result, err = chdirTool.Execute(ctx, map[string]interface{}{
+		"path": "test_dir",
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		var parsed map[string]interface{}
+		json.Unmarshal([]byte(result), &parsed)
+		fmt.Printf("Success: %v\n", parsed["message"])
+		fmt.Printf("New directory: %v\n", parsed["current_dir"])
+	}
+	fmt.Println()
+
+	// Test 5: Verify we're in test_dir
+	newCwd, _ := os.Getwd()
+	fmt.Printf("Test 5: Verified current directory: %s\n", newCwd)
+	fmt.Println()
+
+	// Test 6: Change back to workspace root
+	fmt.Println("Test 6: Changing directory back to workspace root")
+	result, err = chdirTool.Execute(ctx, map[string]interface{}{
+		"path": ".",
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		var parsed map[string]interface{}
+		json.Unmarshal([]byte(result), &parsed)
+		fmt.Printf("Success: %v\n", parsed["message"])
+	}
+	fmt.Println()
+
+	// Test 7: Try to create directory that already exists
+	fmt.Println("Test 7: Attempting to create 'test_dir' again (should report it exists)")
+	result, err = mkdirTool.Execute(ctx, map[string]interface{}{
+		"path": "test_dir",
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		var parsed map[string]interface{}
+		json.Unmarshal([]byte(result), &parsed)
+		fmt.Printf("Success: %v\n", parsed["message"])
+		fmt.Printf("Already existed: %v\n", parsed["existed"])
+	}
+	fmt.Println()
+
+	fmt.Println("All tests completed!")
+	fmt.Println("\nNote: The test directory 'test_dir' was created in your workspace.")
+	fmt.Println("You can clean it up with: rm -rf test_dir")
+}

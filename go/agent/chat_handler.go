@@ -1,0 +1,240 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"wilson/core/registry"
+	. "wilson/core/types"
+	"wilson/ollama"
+	"wilson/session"
+)
+
+// ChatHandler handles direct chat interactions (not task-based)
+type ChatHandler struct {
+	agent    *ChatAgent
+	history  *session.History
+	executor *registry.Executor
+}
+
+// NewChatHandler creates a new chat handler
+func NewChatHandler(agent *ChatAgent, history *session.History, executor *registry.Executor) *ChatHandler {
+	return &ChatHandler{
+		agent:    agent,
+		history:  history,
+		executor: executor,
+	}
+}
+
+// ChatRequest represents a chat request
+type ChatRequest struct {
+	UserInput string
+	Context   context.Context
+}
+
+// ChatResponse represents a chat response
+type ChatResponse struct {
+	Text         string
+	ToolUsed     string
+	ToolCancelled bool
+	Success      bool
+	Artifacts    []string
+}
+
+// HandleChat processes a chat request and returns a response
+func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatResponse, error) {
+	// Add user message to history
+	h.history.AddMessage("user", userInput)
+
+	// Classify user intent
+	intent := ClassifyIntent(userInput)
+
+	// Handle delegation intent specially
+	if intent == IntentDelegate {
+		// Complex task - delegate to specialist agent
+		return h.handleDelegation(ctx, userInput)
+	}
+
+	// Select system prompt based on intent
+	var systemPrompt string
+	switch intent {
+	case IntentChat:
+		// Simple chat - use minimal prompt (fast)
+		systemPrompt = registry.GenerateChatPrompt()
+	case IntentTool:
+		// Tool request - use full prompt with all tools
+		systemPrompt = registry.GenerateSystemPrompt()
+	default:
+		// Fallback to tool prompt
+		systemPrompt = registry.GenerateSystemPrompt()
+	}
+
+	// Build messages array with system prompt + conversation history
+	messages := []ollama.Message{
+		{Role: "system", Content: systemPrompt},
+	}
+
+	// Add conversation history
+	for _, msg := range h.history.GetMessages() {
+		messages = append(messages, ollama.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+
+	// Get response from Ollama (collect full response first)
+	var fullResponse strings.Builder
+	err := ollama.AskOllamaWithMessages(ctx, messages, func(text string) {
+		fullResponse.WriteString(text)
+	})
+
+	if err != nil {
+		return &ChatResponse{
+			Success: false,
+		}, err
+	}
+
+	response := fullResponse.String()
+
+	// Check if the response is a tool call
+	isTool, toolCall := registry.IsToolCall(response)
+
+	if isTool && toolCall != nil {
+		// Execute the tool
+		result, err := h.executor.Execute(ctx, *toolCall)
+
+		if err != nil {
+			// Check if user declined
+			if strings.Contains(err.Error(), "user declined") {
+				return &ChatResponse{
+					Text:          "",
+					Success:       true,
+					ToolUsed:      toolCall.Tool,
+					ToolCancelled: true,
+				}, nil
+			}
+
+			// Tool execution error - get follow-up response
+			result = fmt.Sprintf("Error executing tool: %v", err)
+		}
+
+		// Get follow-up response from LLM
+		followUpMessages := []ollama.Message{
+			{Role: "system", Content: systemPrompt},
+		}
+
+		// Add conversation history
+		for _, msg := range h.history.GetMessages() {
+			followUpMessages = append(followUpMessages, ollama.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Add tool result as assistant message (the tool call result)
+		followUpMessages = append(followUpMessages, ollama.Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf(`{"tool": "%s", "arguments": %s}`, toolCall.Tool, formatArgs(toolCall.Arguments)),
+		})
+
+		// Add system message with tool result
+		followUpMessages = append(followUpMessages, ollama.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Tool '%s' executed successfully. Here are the results:\n\n%s\n\nPlease provide a helpful, natural response to the user based on these results. If the results contain the information the user requested, present it clearly and concisely.", toolCall.Tool, result),
+		})
+
+		var followUpResponse strings.Builder
+		err = ollama.AskOllamaWithMessages(ctx, followUpMessages, func(text string) {
+			followUpResponse.WriteString(text)
+		})
+
+		if err != nil {
+			return &ChatResponse{
+				Success: false,
+			}, err
+		}
+
+		finalResponse := followUpResponse.String()
+
+		// Add assistant response to history
+		h.history.AddMessage("assistant", finalResponse)
+
+		return &ChatResponse{
+			Text:     finalResponse,
+			ToolUsed: toolCall.Tool,
+			Success:  true,
+		}, nil
+	} else {
+		// Normal response - add to history
+		h.history.AddMessage("assistant", response)
+
+		return &ChatResponse{
+			Text:    response,
+			Success: true,
+		}, nil
+	}
+}
+
+// handleDelegation handles delegation intent by calling delegate_task tool
+func (h *ChatHandler) handleDelegation(ctx context.Context, userInput string) (*ChatResponse, error) {
+	// Determine which agent to delegate to based on keywords
+	toAgent := "analysis" // Default
+	taskType := "general"
+
+	lowerInput := strings.ToLower(userInput)
+	if strings.Contains(lowerInput, "code") || strings.Contains(lowerInput, "implement") ||
+	   strings.Contains(lowerInput, "build") || strings.Contains(lowerInput, "refactor") {
+		toAgent = "code"
+		taskType = "code"
+	} else if strings.Contains(lowerInput, "research") || strings.Contains(lowerInput, "analyze") ||
+	          strings.Contains(lowerInput, "search") || strings.Contains(lowerInput, "find information") {
+		toAgent = "analysis"
+		taskType = "research"
+	}
+
+	// Build delegation tool call
+	toolCall := ToolCall{
+		Tool: "delegate_task",
+		Arguments: map[string]interface{}{
+			"to_agent":    toAgent,
+			"task_type":   taskType,
+			"description": userInput,
+		},
+	}
+
+	// Execute delegation
+	result, err := h.executor.Execute(ctx, toolCall)
+	if err != nil {
+		return &ChatResponse{
+			Success: false,
+		}, fmt.Errorf("delegation failed: %w", err)
+	}
+
+	// Create response
+	response := fmt.Sprintf("I've delegated this task to the %s agent.\n\n%s", toAgent, result)
+
+	// Add to history
+	h.history.AddMessage("assistant", response)
+
+	return &ChatResponse{
+		Text:     response,
+		ToolUsed: "delegate_task",
+		Success:  true,
+	}, nil
+}
+
+// ClearHistory clears the conversation history
+func (h *ChatHandler) ClearHistory() {
+	h.history.Clear()
+}
+
+// formatArgs formats arguments as JSON string
+func formatArgs(args map[string]interface{}) string {
+	data, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprintf("%v", args)
+	}
+	return string(data)
+}

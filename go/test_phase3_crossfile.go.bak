@@ -1,0 +1,291 @@
+// Test script for Phase 3: Cross-File Awareness tools
+// Tests: dependency_graph, find_related, find_patterns
+
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"wilson/core/registry"
+	_ "wilson/capabilities/code_intelligence/analysis" // Phase 3 tools
+)
+
+func main() {
+	fmt.Println("=== Phase 3: Cross-File Awareness Testing ===\n")
+
+	ctx := context.Background()
+
+	// Test 1: Dependency Graph
+	fmt.Println("📊 Test 1: Dependency Graph (agent package)")
+	fmt.Println("─────────────────────────────────────────────")
+	testDependencyGraph(ctx)
+
+	fmt.Println("\n" + strings.Repeat("=", 70) + "\n")
+
+	// Test 2: Find Related Files
+	fmt.Println("🔗 Test 2: Find Related Files (agent/code_agent.go)")
+	fmt.Println("─────────────────────────────────────────────")
+	testFindRelated(ctx)
+
+	fmt.Println("\n" + strings.Repeat("=", 70) + "\n")
+
+	// Test 3: Find Error Handling Patterns
+	fmt.Println("🔍 Test 3: Find Patterns - Error Handling")
+	fmt.Println("─────────────────────────────────────────────")
+	testFindPatternsError(ctx)
+
+	fmt.Println("\n" + strings.Repeat("=", 70) + "\n")
+
+	// Test 4: Find Struct Patterns
+	fmt.Println("🏗️  Test 4: Find Patterns - Struct Definitions")
+	fmt.Println("─────────────────────────────────────────────")
+	testFindPatternsStruct(ctx)
+
+	fmt.Println("\n" + strings.Repeat("=", 70) + "\n")
+
+	// Test 5: Find Interface Patterns
+	fmt.Println("🎯 Test 5: Find Patterns - Interface Implementations")
+	fmt.Println("─────────────────────────────────────────────")
+	testFindPatternsInterface(ctx)
+
+	fmt.Println("\n✅ All Phase 3 tests completed!")
+}
+
+func testDependencyGraph(ctx context.Context) {
+	tool, err := registry.GetTool("dependency_graph")
+	if err != nil {
+		fmt.Printf("❌ Tool not found: %v\n", err)
+		return
+	}
+
+	// Analyze agent package dependencies
+	result, err := tool.Execute(ctx, map[string]interface{}{
+		"path":  "agent",
+		"depth": 2,
+	})
+
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Parse result
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err != nil {
+		fmt.Printf("❌ Failed to parse result: %v\n", err)
+		return
+	}
+
+	// Print summary
+	fmt.Printf("✅ Total packages analyzed: %v\n", data["total_packages"])
+	fmt.Printf("   Direct imports: %v\n", data["direct_imports"])
+	fmt.Printf("   Transitive deps: %v\n", data["transitive_deps"])
+	fmt.Printf("   Has circular deps: %v\n", data["has_circular"])
+
+	// Show dependency tree (first level only)
+	if tree, ok := data["dependency_tree"].(map[string]interface{}); ok {
+		fmt.Printf("\n   Dependency Tree:\n")
+		fmt.Printf("   └─ %v (%v)\n", tree["package"], tree["path"])
+		if imports, ok := tree["imports"].([]interface{}); ok && len(imports) > 0 {
+			for i, imp := range imports {
+				if impMap, ok := imp.(map[string]interface{}); ok {
+					if i == len(imports)-1 {
+						fmt.Printf("      └─ %v\n", impMap["package"])
+					} else {
+						fmt.Printf("      ├─ %v\n", impMap["package"])
+					}
+				}
+			}
+		}
+	}
+}
+
+func testFindRelated(ctx context.Context) {
+	tool, err := registry.GetTool("find_related")
+	if err != nil {
+		fmt.Printf("❌ Tool not found: %v\n", err)
+		return
+	}
+
+	// Find files related to code_agent.go
+	result, err := tool.Execute(ctx, map[string]interface{}{
+		"path": "agent/code_agent.go",
+	})
+
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Parse result
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err != nil {
+		fmt.Printf("❌ Failed to parse result: %v\n", err)
+		return
+	}
+
+	// Print summary
+	fmt.Printf("✅ Target: %v\n", data["target"])
+	fmt.Printf("   Total related files: %v\n", data["total_related"])
+
+	// Show imports
+	if imports, ok := data["imports"].([]interface{}); ok && len(imports) > 0 {
+		fmt.Printf("\n   Imports (%d):\n", len(imports))
+		for _, imp := range imports {
+			fmt.Printf("   - %v\n", imp)
+		}
+	}
+
+	// Show imported by
+	if importedBy, ok := data["imported_by"].([]interface{}); ok && len(importedBy) > 0 {
+		fmt.Printf("\n   Imported by (%d):\n", len(importedBy))
+		for i, imp := range importedBy {
+			if i >= 5 {
+				fmt.Printf("   ... and %d more\n", len(importedBy)-5)
+				break
+			}
+			fmt.Printf("   - %v\n", imp)
+		}
+	}
+
+	// Show same package files
+	if samePkg, ok := data["same_package"].([]interface{}); ok && len(samePkg) > 0 {
+		fmt.Printf("\n   Same package (%d files):\n", len(samePkg))
+		for _, file := range samePkg {
+			fmt.Printf("   - %v\n", file)
+		}
+	}
+}
+
+func testFindPatternsError(ctx context.Context) {
+	tool, err := registry.GetTool("find_patterns")
+	if err != nil {
+		fmt.Printf("❌ Tool not found: %v\n", err)
+		return
+	}
+
+	// Find error handling patterns
+	result, err := tool.Execute(ctx, map[string]interface{}{
+		"pattern_type": "error_handling",
+		"limit":        3,
+	})
+
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Parse result
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err != nil {
+		fmt.Printf("❌ Failed to parse result: %v\n", err)
+		return
+	}
+
+	// Print summary
+	fmt.Printf("✅ Pattern type: %v\n", data["pattern_type"])
+	fmt.Printf("   Examples found: %v\n", data["examples_found"])
+	fmt.Printf("   Summary: %v\n\n", data["summary"])
+
+	// Show examples
+	if examples, ok := data["examples"].([]interface{}); ok && len(examples) > 0 {
+		fmt.Printf("   Example patterns:\n")
+		for i, ex := range examples {
+			if exMap, ok := ex.(map[string]interface{}); ok {
+				fmt.Printf("\n   %d. %v (line %v in %v)\n", i+1, exMap["name"], exMap["line"], exMap["file"])
+				if code, ok := exMap["code"].(string); ok && len(code) < 150 {
+					fmt.Printf("      %v\n", code)
+				}
+			}
+		}
+	}
+}
+
+func testFindPatternsStruct(ctx context.Context) {
+	tool, err := registry.GetTool("find_patterns")
+	if err != nil {
+		fmt.Printf("❌ Tool not found: %v\n", err)
+		return
+	}
+
+	// Find struct patterns with "Agent" keyword
+	result, err := tool.Execute(ctx, map[string]interface{}{
+		"pattern_type": "struct_definition",
+		"keyword":      "Agent",
+		"limit":        5,
+	})
+
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Parse result
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err != nil {
+		fmt.Printf("❌ Failed to parse result: %v\n", err)
+		return
+	}
+
+	// Print summary
+	fmt.Printf("✅ Pattern type: %v\n", data["pattern_type"])
+	fmt.Printf("   Keyword filter: %v\n", data["keyword"])
+	fmt.Printf("   Examples found: %v\n", data["examples_found"])
+	fmt.Printf("   Summary: %v\n\n", data["summary"])
+
+	// Show examples
+	if examples, ok := data["examples"].([]interface{}); ok && len(examples) > 0 {
+		fmt.Printf("   Agent struct patterns:\n")
+		for _, ex := range examples {
+			if exMap, ok := ex.(map[string]interface{}); ok {
+				fmt.Printf("   - %v (in %v)\n", exMap["name"], exMap["file"])
+			}
+		}
+	}
+}
+
+func testFindPatternsInterface(ctx context.Context) {
+	tool, err := registry.GetTool("find_patterns")
+	if err != nil {
+		fmt.Printf("❌ Tool not found: %v\n", err)
+		return
+	}
+
+	// Find interface patterns
+	result, err := tool.Execute(ctx, map[string]interface{}{
+		"pattern_type": "interface_impl",
+		"search_path":  "agent",
+		"limit":        5,
+	})
+
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Parse result
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &data); err != nil {
+		fmt.Printf("❌ Failed to parse result: %v\n", err)
+		return
+	}
+
+	// Print summary
+	fmt.Printf("✅ Pattern type: %v\n", data["pattern_type"])
+	fmt.Printf("   Search path: %v\n", data["search_path"])
+	fmt.Printf("   Examples found: %v\n", data["examples_found"])
+	fmt.Printf("   Summary: %v\n\n", data["summary"])
+
+	// Show examples
+	if examples, ok := data["examples"].([]interface{}); ok && len(examples) > 0 {
+		fmt.Printf("   Interface patterns:\n")
+		for _, ex := range examples {
+			if exMap, ok := ex.(map[string]interface{}); ok {
+				fmt.Printf("   - %v: %v\n", exMap["name"], exMap["code"])
+			}
+		}
+	}
+}

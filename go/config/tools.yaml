@@ -1,0 +1,110 @@
+# Wilson Assistant Configuration File
+
+workspace:
+  # Workspace path - where Wilson can access files
+  # Options:
+  #   - Leave empty or comment out to use user's home directory (~/)
+  #   - Use "~" or "~/" for user's home directory
+  #   - Use "~/Documents" for a specific folder in home
+  #   - Use absolute path like "/path/to/workspace"
+  #   - Set WILSON_WORKSPACE environment variable to override
+  path: "~"
+
+ollama:
+  model: "llama3:latest"
+  url: "http://localhost:11434"
+
+# Multi-LLM Configuration
+llms:
+  chat:
+    provider: "ollama"
+    model: "llama3:latest"
+    temperature: 0.7
+    base_url: "http://localhost:11434"
+
+  analysis:
+    provider: "ollama"
+    model: "qwen2.5:7b"
+    temperature: 0.3
+    base_url: "http://localhost:11434"
+
+  code:
+    provider: "ollama"
+    model: "qwen2.5-coder:14b"
+    temperature: 0.1
+    base_url: "http://localhost:11434"
+
+tools:
+  # Filesystem Tools
+  list_files:
+    enabled: true
+    requires_confirm: false
+
+  read_file:
+    enabled: true
+    requires_confirm: false
+    max_file_size: 10000  # Max bytes to read
+
+  search_files:
+    enabled: true
+    requires_confirm: false
+
+  # System Tools
+  run_command:
+    enabled: true
+    requires_confirm: true  # Always confirm before running commands
+    timeout: 30s
+    blocked_patterns:
+      - "rm -rf"
+      - "sudo"
+      - "curl"
+      - "wget"
+      - "dd"
+      - "mkfs"
+      - "> /dev"
+
+  # Web Tools
+  search_web:
+    enabled: true
+    requires_confirm: false
+    max_results: 10
+
+  fetch_page:
+    enabled: true
+    requires_confirm: true
+    timeout: 30s
+    max_file_size: 5242880  # 5MB
+    allowed_domains:
+      - "github.com"
+      - "*.github.com"
+      - "stackoverflow.com"
+      - "*.stackoverflow.com"
+      - "docs.python.org"
+      - "go.dev"
+      - "pkg.go.dev"
+
+  extract_content:
+    enabled: true
+    requires_confirm: false
+
+  analyze_content:
+    enabled: true
+    requires_confirm: false
+    llm: "analysis"  # Uses the analysis LLM (mixtral)
+    max_content_length: 10000
+    prompts:
+      summarize: "Provide a concise summary of the following content in 3-5 bullet points. Focus on the key information and main takeaways."
+      extract_key_points: "Extract and list the main points, important facts, and key information from the following content."
+      answer_question: "Based on the following content, answer this question: {question}"
+
+audit:
+  enabled: true
+  log_path: ".wilson/audit.log"
+  log_level: "info"  # info, warning, error
+
+# Context Store Configuration
+context:
+  enabled: true
+  db_path: ".wilson/memory.db"
+  auto_store: true  # Automatically store tool results
+  default_context: "session"  # Default context for new sessions
