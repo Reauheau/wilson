@@ -2,16 +2,18 @@ package config
 
 import (
 	"time"
+	"wilson/mcp"
 )
 
 // Config represents the application configuration
 type Config struct {
-	Workspace WorkspaceConfig        `yaml:"workspace"`
-	Ollama    OllamaConfig           `yaml:"ollama"` // Deprecated: Use LLMs instead
-	LLMs      map[string]LLMConfig   `yaml:"llms"`
-	Tools     ToolsConfig            `yaml:"tools"`
-	Audit     AuditConfig            `yaml:"audit"`
-	Context   ContextConfig          `yaml:"context"`
+	Workspace WorkspaceConfig      `yaml:"workspace"`
+	Ollama    OllamaConfig         `yaml:"ollama"` // Deprecated: Use LLMs instead
+	LLMs      map[string]LLMConfig `yaml:"llms"`
+	Tools     ToolsConfig          `yaml:"tools"`
+	Audit     AuditConfig          `yaml:"audit"`
+	Context   ContextConfig        `yaml:"context"`
+	MCP       mcp.MCPConfig        `yaml:"mcp"`
 }
 
 // WorkspaceConfig defines the safe workspace directory
@@ -27,15 +29,15 @@ type OllamaConfig struct {
 
 // LLMConfig defines settings for a specific LLM instance
 type LLMConfig struct {
-	Provider     string         `yaml:"provider"`
-	Model        string         `yaml:"model"`
-	Temperature  float64        `yaml:"temperature"`
-	BaseURL      string         `yaml:"base_url,omitempty"`
-	APIKey       string         `yaml:"api_key,omitempty"`
-	Fallback     string         `yaml:"fallback,omitempty"`
-	Options      map[string]any `yaml:"options,omitempty"`
-	KeepAlive    bool           `yaml:"keep_alive"`     // Never unload model (for Wilson's chat model)
-	IdleTimeout  int            `yaml:"idle_timeout"`   // Seconds before unloading (0 = immediate)
+	Provider    string         `yaml:"provider"`
+	Model       string         `yaml:"model"`
+	Temperature float64        `yaml:"temperature"`
+	BaseURL     string         `yaml:"base_url,omitempty"`
+	APIKey      string         `yaml:"api_key,omitempty"`
+	Fallback    string         `yaml:"fallback,omitempty"`
+	Options     map[string]any `yaml:"options,omitempty"`
+	KeepAlive   bool           `yaml:"keep_alive"`   // Never unload model (for Wilson's chat model)
+	IdleTimeout int            `yaml:"idle_timeout"` // Seconds before unloading (0 = immediate)
 }
 
 // ToolsConfig contains settings for all tools
@@ -54,8 +56,8 @@ type ToolConfig struct {
 	Timeout         *time.Duration    `yaml:"timeout,omitempty"`
 	BlockedPatterns []string          `yaml:"blocked_patterns,omitempty"`
 	AllowedDomains  []string          `yaml:"allowed_domains,omitempty"`
-	Prompts         map[string]string `yaml:"prompts,omitempty"`          // LLM prompts for different modes
-	Extra           map[string]string `yaml:"extra,omitempty"`            // Tool-specific settings
+	Prompts         map[string]string `yaml:"prompts,omitempty"` // LLM prompts for different modes
+	Extra           map[string]string `yaml:"extra,omitempty"`   // Tool-specific settings
 }
 
 // AuditConfig defines audit logging settings
@@ -69,6 +71,6 @@ type AuditConfig struct {
 type ContextConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	DBPath         string `yaml:"db_path"`
-	AutoStore      bool   `yaml:"auto_store"`       // Automatically store tool results
-	DefaultContext string `yaml:"default_context"`  // Default context key
+	AutoStore      bool   `yaml:"auto_store"`      // Automatically store tool results
+	DefaultContext string `yaml:"default_context"` // Default context key
 }

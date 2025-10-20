@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	. "wilson/core/types"
 	chatinterface "wilson/interface/chat"
 	"wilson/llm"
+	"wilson/mcp"
 	"wilson/ollama"
 	"wilson/session"
 
@@ -74,6 +76,12 @@ func main() {
 	contextMgr := initializeContextManager(cfg)
 	if contextMgr != nil {
 		defer contextMgr.Close()
+	}
+
+	// Initialize MCP Client (Phase 1)
+	mcpClient := initializeMCPClient(ctx, cfg)
+	if mcpClient != nil {
+		defer mcpClient.Close()
 	}
 
 	// Initialize Agent System (silent)
@@ -235,6 +243,45 @@ func initializeLLMManager(ctx context.Context, cfg *config.Config) *llm.Manager 
 	web.SetLLMManager(manager)
 
 	return manager
+}
+
+// initializeMCPClient creates and initializes the MCP client
+func initializeMCPClient(ctx context.Context, cfg *config.Config) *mcp.Client {
+	if !cfg.MCP.Enabled {
+		return nil
+	}
+
+	client := mcp.NewClient(cfg.MCP)
+	if err := client.Initialize(ctx); err != nil {
+		fmt.Printf("Warning: Failed to initialize MCP client: %v\n", err)
+		return nil
+	}
+
+	// List available tools
+	tools := client.ListTools()
+	if len(tools) > 0 {
+		fmt.Printf("[MCP] %d tool(s) available from %d server(s)\n", len(tools), len(client.GetServerNames()))
+
+		// Register MCP tools with Wilson's tool registry
+		registerMCPTools(client)
+	}
+
+	return client
+}
+
+// registerMCPTools registers all MCP tools with Wilson's registry
+func registerMCPTools(client *mcp.Client) {
+	tools := client.ListTools()
+
+	for _, mcpTool := range tools {
+		// Create a bridge for each MCP tool
+		bridge := mcp.NewMCPToolBridge(client, mcpTool.ServerName, mcpTool)
+
+		// Register with Wilson's tool registry
+		registry.Register(bridge)
+
+		log.Printf("[MCP] Registered Wilson tool: mcp_%s_%s", mcpTool.ServerName, mcpTool.Name)
+	}
 }
 
 // initializeContextManager creates and configures the context manager

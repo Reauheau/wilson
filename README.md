@@ -90,9 +90,23 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 
 ### Prerequisites
 
+**Required:**
 - Go 1.21+
 - [Ollama](https://ollama.ai) installed and running
 - 16GB+ RAM recommended (8GB minimum)
+
+**Optional (for MCP servers):**
+- Node.js 18+ and npm (for external tool integrations via MCP)
+  ```bash
+  # macOS
+  brew install node
+
+  # Ubuntu/Debian
+  sudo apt install nodejs npm
+
+  # Windows
+  # Download from https://nodejs.org
+  ```
 
 ### Installation
 
@@ -109,6 +123,10 @@ ollama pull qwen2.5-coder:14b   # Code generation (8GB)
 cd go
 go build -o wilson main.go
 ./wilson
+
+# Optional: Enable MCP external tools (requires Node.js)
+# Edit go/config/tools.yaml and set mcp.enabled: true
+# Wilson will automatically download MCP servers via npx on first use
 ```
 
 ### Global Command Setup
@@ -178,9 +196,58 @@ code: qwen2.5-coder:32b    # 16GB - Production-grade code
 
 **Note:** All qwen2.5 models have better structured output (tool calling) than llama3, even at smaller sizes.
 
+## MCP Integration (Model Context Protocol)
+
+Wilson supports the [Model Context Protocol](https://modelcontextprotocol.io) for standardized external tool access.
+
+**What is MCP?**
+- Open protocol by Anthropic for connecting LLMs to external data sources
+- Standardized way to add tools without hardcoding integrations
+- Growing ecosystem of community servers
+
+**Available MCP Servers:**
+- ✅ **Filesystem** - File operations (14 tools) - Enabled by default
+- **GitHub** - Issues, PRs, repos - Requires `GITHUB_TOKEN`
+- **Postgres** - Database queries - Requires `DATABASE_URL`
+- **Slack** - Send messages, read channels - Requires `SLACK_BOT_TOKEN`
+- **Memory** - Persistent key-value storage - No API keys needed
+- [View 20+ more servers](https://github.com/modelcontextprotocol/servers)
+
+**Quick Setup:**
+```bash
+# 1. Set API keys (example for GitHub)
+export GITHUB_TOKEN="ghp_your_token"
+
+# 2. Enable in config
+# Edit go/config/tools.yaml, set github.enabled: true
+
+# 3. Restart Wilson
+```
+
+📖 **Full setup guide:** See [MCP_SETUP.md](MCP_SETUP.md) for detailed instructions
+
+**Configuration:**
+```yaml
+# go/config/tools.yaml
+mcp:
+  enabled: true
+  servers:
+    filesystem:
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+      enabled: true
+```
+
+On first run, Wilson automatically downloads MCP servers via `npx`.
+
+**Status:** ✅ Production-Ready - Phases 1-3 complete, extensible architecture
+
+---
+
 ## Documentation
 
-- **[ENDGAME.md](ENDGAME.md)** - Vision and architecture overview
+- **[MCP_SETUP.md](MCP_SETUP.md)** - MCP server setup guide (GitHub, Slack, Postgres, etc.)
+- **[ENDGAME.md](ENDGAME.md)** - Vision and architecture overview (includes MCP)
 - **[DONE.md](DONE.md)** - Implementation history and key learnings
 - **[TODO.md](TODO.md)** - Roadmap and upcoming features
 - **[SESSION_INSTRUCTIONS.md](SESSION_INSTRUCTIONS.md)** - Development guidelines

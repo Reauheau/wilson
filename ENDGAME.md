@@ -831,3 +831,61 @@ For the technical implementation plan, roadmap, and detailed tasks, see **TODO.m
 
 ---
 
+## Model Context Protocol (MCP) Integration ✅ COMPLETE
+
+**Status:** Production-Ready (Oct 20, 2025)
+
+### What It Is
+
+Anthropic's open protocol for connecting LLMs to external data sources via standardized servers.
+
+### Architecture
+
+```
+Wilson Core Tools (context, orchestration, code intelligence)
+     +
+MCP Client → External Integrations
+     ├─ Filesystem (14 tools)
+     ├─ GitHub (API access)
+     ├─ Postgres (database)
+     ├─ Slack (messaging)
+     └─ 20+ community servers
+```
+
+### Implementation
+
+**3 Phases (4 days):**
+1. **Client Foundation** - Connect to MCP servers, discover tools
+2. **Tool Bridge** - MCP tools callable by agents via `mcp_<server>_<tool>`
+3. **Popular Servers** - GitHub, Postgres, Slack, Memory configured
+
+**Key Features:**
+- Auto-registers MCP tools on startup
+- Tools appear in system prompts automatically
+- JSON-formatted results
+- Environment variable-based API keys
+- Graceful handling of missing dependencies
+
+### Benefits
+
+**Immediate:**
+- 14 filesystem tools via MCP (advanced features)
+- Ready for GitHub, databases, Slack (user enables)
+- No hardcoded integrations - standardized protocol
+
+**Future:**
+- Easy to add new servers (just config)
+- Community ecosystem of 20+ servers
+- Wilson's context could be exposed as MCP server
+
+### Why Hybrid (Manual + MCP)?
+
+**Manual tools:** Core Wilson features (context store, multi-agent orchestration, code intelligence)
+**MCP tools:** External integrations (GitHub, databases, APIs, cloud services)
+
+Both coexist - users choose based on needs.
+
+**Documentation:** [MCP_SETUP.md](MCP_SETUP.md)
+
+---
+

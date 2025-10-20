@@ -127,3 +127,64 @@ context:
   db_path: ".wilson/memory.db"
   auto_store: true  # Automatically store tool results
   default_context: "session"  # Default context for new sessions
+
+# Model Context Protocol (MCP) Configuration
+# Phase 1: Foundation - Connect to MCP servers for external tool access
+mcp:
+  enabled: true
+  servers:
+    # Filesystem MCP Server - Access files via standardized protocol
+    # Requires Node.js and npx installed
+    filesystem:
+      name: "filesystem"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/roderick.vannievelt"]
+      enabled: true
+      # env:
+      #   EXAMPLE_VAR: "${HOME}/path"  # Environment variables (optional)
+
+    # GitHub MCP Server - GitHub API access
+    # Requires: GITHUB_TOKEN environment variable
+    # Tools: create_issue, list_repos, get_pr, create_pr, etc.
+    github:
+      name: "github"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      enabled: false  # Set to true and configure GITHUB_TOKEN to enable
+      env:
+        GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+    # Postgres MCP Server - Database queries
+    # Requires: DATABASE_URL environment variable
+    # Tools: query, list_tables, describe_table, etc.
+    postgres:
+      name: "postgres"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-postgres"]
+      enabled: false  # Set to true and configure DATABASE_URL to enable
+      env:
+        DATABASE_URL: "${DATABASE_URL}"
+
+    # Slack MCP Server - Slack integration
+    # Requires: SLACK_BOT_TOKEN and SLACK_TEAM_ID environment variables
+    # Tools: send_message, list_channels, get_channel_history, etc.
+    slack:
+      name: "slack"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-slack"]
+      enabled: false  # Set to true and configure Slack tokens to enable
+      env:
+        SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
+        SLACK_TEAM_ID: "${SLACK_TEAM_ID}"
+
+    # Memory MCP Server - Persistent key-value storage
+    # No API keys required
+    # Tools: store_memory, recall_memory, list_memories, etc.
+    memory:
+      name: "memory"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-memory"]
+      enabled: false  # Set to true to enable persistent memory
+
+    # More MCP servers available at:
+    # https://github.com/modelcontextprotocol/servers

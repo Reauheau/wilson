@@ -14,6 +14,7 @@ const (
 	CategoryAI            ToolCategory = "ai"
 	CategoryWeb           ToolCategory = "web"
 	CategoryOrchestration ToolCategory = "orchestration"
+	CategoryMCP           ToolCategory = "mcp" // MCP external tools
 )
 
 // RiskLevel indicates how dangerous a tool operation is

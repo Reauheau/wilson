@@ -4,6 +4,23 @@
 
 ---
 
+## Model Context Protocol (MCP) Integration - Oct 20, 2025
+
+**Goal:** Standardized external tool access via Anthropic's MCP protocol
+
+**Implementation:** 3 phases, 4 days
+- Phase 1: MCP client (mcp-go SDK), server connection, tool discovery
+- Phase 2: Tool bridge adapts MCP tools to Wilson's interface, auto-registration
+- Phase 3: GitHub/Postgres/Slack/Memory servers configured + documentation
+
+**Result:** Wilson can connect to unlimited MCP servers. 14 filesystem tools working by default. GitHub/database/Slack integrations ready (user enables). Hybrid approach: manual tools for core Wilson features, MCP for external integrations.
+
+**Files:** `go/mcp/client.go`, `go/mcp/bridge.go`, `go/mcp/types.go`, `MCP_SETUP.md`
+
+**Key Learning:** Hybrid approach best - keep Wilson-specific tools (context, orchestration, code intelligence) manual for performance/control, use MCP for external APIs (GitHub, databases, cloud services). MCP's JSON Schema less important than easy integration.
+
+---
+
 ## Web Search Fixes (Phases 1-3) - Oct 14, 2025
 
 **Problem:** DuckDuckGo Instant Answer API didn't return actual search results.
