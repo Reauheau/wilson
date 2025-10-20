@@ -41,6 +41,7 @@ secrets.yaml
 tmp/
 temp/
 *.tmp
+*.bak
 
 # Model files (if downloaded locally)
 *.gguf
