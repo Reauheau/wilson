@@ -16,27 +16,75 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 ## Architecture
 
 ```
-USER
-  ↓
-Wilson (Chat Agent - llama3, 4GB, always on)
-  ↓ async delegation (returns immediately)
-Coordinator
-  ↓ spawns on-demand
-Worker Manager (max 2 concurrent)
-  ↓
-┌─────────────┬─────────────┬─────────────┬─────────────┐
-│ Code Worker │ Test Worker │ Research    │ Review      │
-│ (ephemeral) │ (ephemeral) │ (ephemeral) │ (ephemeral) │
-│             │             │             │             │
-│ qwen2.5-    │ llama3      │ mixtral     │ claude-3    │
-│ coder:14b   │ (~4GB)      │ (~6GB)      │ (~6GB)      │
-│ (~8GB)      │             │             │             │
-└─────────────┴─────────────┴─────────────┴─────────────┘
-  ↓
-SQLite (tasks, artifacts, reviews)
+┌──────────────────────────────────────────────────────┐
+│                      USER                            │
+│              (Always responsive CLI)                 │
+└─────────────────────┬────────────────────────────────┘
+                      │
+                      ▼
+┌──────────────────────────────────────────────────────┐
+│           WILSON (Chat Agent)                        │
+│  Model: qwen2.5:7b (always loaded, 4GB)            │
+│  Role: Intent classification, tool execution,        │
+│        async task delegation                         │
+│  Status: NON-BLOCKING - Returns immediately          │
+└─────────────────────┬────────────────────────────────┘
+                      │
+                      ▼ (async - returns task ID)
+┌──────────────────────────────────────────────────────┐
+│                  COORDINATOR                         │
+│  DelegateTaskAsync() - spawns goroutine             │
+│  Status broadcaster - real-time updates             │
+└──────────┬───────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────┐
+│              WORKER MANAGER                          │
+│  Strategy: Spawn on-demand, kill after completion   │
+│  Max concurrent: 2 workers (configurable)           │
+│  Model lifecycle: Load → Execute → Unload           │
+└──────┬──────────────┬──────────────┬─────────────────┘
+       │              │              │
+       ▼              ▼              ▼
+┌────────────┐ ┌────────────┐ ┌────────────┐
+│ CODE       │ │ RESEARCH   │ │ TEST       │
+│ WORKER     │ │ WORKER     │ │ WORKER     │
+│(goroutine) │ │(goroutine) │ │(goroutine) │
+│            │ │            │ │            │
+│ Model:     │ │ Model:     │ │ Model:     │
+│ qwen2.5-   │ │ qwen2.5    │ │ qwen2.5    │
+│ coder:14b  │ │ 7b         │ │ 7b         │
+│ (~8GB)     │ │ (~4GB)     │ │ (~4GB)     │
+│            │ │            │ │            │
+│ Tools:     │ │ Tools:     │ │ Tools:     │
+│ - read     │ │ - search   │ │ - run      │
+│ - write    │ │ - fetch    │ │ - test     │
+│ - compile  │ │ - analyze  │ │ - report   │
+│            │ │            │ │            │
+│ Life:      │ │ Life:      │ │ Life:      │
+│ EPHEMERAL  │ │ EPHEMERAL  │ │ EPHEMERAL  │
+└──────┬─────┘ └──────┬─────┘ └──────┬─────┘
+       │              │              │
+       └──────────────┴──────────────┘
+                      │
+                      ▼
+         ┌────────────────────────┐
+         │   CONTEXT STORE        │
+         │   (SQLite DB)          │
+         │                        │
+         │ - Tasks + Status       │
+         │ - Artifacts            │
+         │ - Agent Notes          │
+         │ - Reviews              │
+         └────────────────────────┘
 ```
 
-**Lifecycle:** Spawn → Load Model → Execute → Kill Immediately
+**Resource Profile (16GB Machine):**
+- **Idle:** 4GB (Wilson only)
+- **Active:** 12GB (Wilson + 1 worker with model loaded)
+- **Done:** 4GB (Worker killed, memory released)
+
+**Worker Lifecycle:** Spawn → Load Model → Execute → Kill Immediately
 
 ## Quick Start
 
@@ -53,12 +101,13 @@ SQLite (tasks, artifacts, reviews)
 git clone https://github.com/reauheau/wilson.git
 cd wilson
 
-# Pull required models
-ollama pull qwen2.5:7b
-ollama pull qwen2.5-coder:14b
+# Pull required models (choose based on your RAM - see Model Recommendations below)
+ollama pull qwen2.5:7b          # Chat & analysis (4GB)
+ollama pull qwen2.5-coder:14b   # Code generation (8GB)
 
 # Build and run
-go build -o wilson .
+cd go
+go build -o wilson main.go
 ./wilson
 ```
 
@@ -91,13 +140,43 @@ Wilson: 4. Your API task is 60% complete.
 Wilson: Done! Created 5 endpoints with auth, all tests passing (92% coverage).
 ```
 
-## Configuration
+## Model Recommendations
 
-Models can be easily swapped in `config.yaml` to match your machine:
+Choose models based on your available RAM. Edit `go/config/tools.yaml` to configure:
 
-**Low-end (8GB):** llama3 for everything, 1 worker max
-**Mid-range (16GB):** llama3 + qwen2.5-coder:14b, 2 workers (default)
-**High-end (32GB+):** llama3 + qwen2.5-coder:32b + mixtral, 2-4 workers
+### Low-End (8GB RAM)
+```yaml
+chat: qwen2.5:3b        # 2GB - Good tool calling, basic conversation
+analysis: qwen2.5:3b    # 2GB - Decent analysis
+code: qwen2.5:7b        # 4GB - Smaller code model
+```
+**Best for:** Basic tasks, limited resources, single worker
+
+### Mid-Range (16GB RAM) - **RECOMMENDED**
+```yaml
+chat: qwen2.5:7b        # 4GB - Excellent tool calling, good conversation
+analysis: qwen2.5:7b    # 4GB - Strong analysis
+code: qwen2.5-coder:14b # 8GB - Professional code generation
+```
+**Best for:** Most users, 2 concurrent workers, balanced performance
+
+### High-End (32GB+ RAM)
+```yaml
+chat: qwen2.5:7b           # 4GB - Fast chat
+analysis: qwen2.5:14b      # 8GB - Deep analysis
+code: qwen2.5-coder:32b    # 16GB - Production-grade code
+```
+**Best for:** Complex projects, 2-4 concurrent workers, maximum quality
+
+### Model Characteristics
+
+| Purpose | Recommended | Why |
+|---------|-------------|-----|
+| **Chat** | qwen2.5:3b or 7b | Better tool calling than llama3, always loaded |
+| **Analysis** | qwen2.5:7b | Good reasoning, research, web analysis |
+| **Code** | qwen2.5-coder:14b | Specialized for code, best quality/size ratio |
+
+**Note:** All qwen2.5 models have better structured output (tool calling) than llama3, even at smaller sizes.
 
 ## Documentation
 

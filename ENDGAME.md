@@ -63,34 +63,34 @@ Transform Wilson into a **fully autonomous multi-agent system** where specialize
 └─────┬──────────┬──────────┬──────────┬──────────────────────────┘
       │          │          │          │
       ▼          ▼          ▼          ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-│ CODE     │ │ RESEARCH │ │ TEST     │ │ REVIEW   │
-│ WORKER   │ │ WORKER   │ │ WORKER   │ │ WORKER   │
-│(goroutn) │ │(goroutn) │ │(goroutn) │ │(goroutn) │
-│          │ │          │ │          │ │          │
-│ Model:   │ │ Model:   │ │ Model:   │ │ Model:   │
-│ qwen2.5- │ │ llama3   │ │ llama3   │ │ llama3   │
-│ coder:   │ │ or       │ │ or       │ │ or       │
-│ 14b      │ │ mixtral  │ │ phi3     │ │ claude-3 │
-│ (~8GB)   │ │ (~6GB)   │ │ (~4GB)   │ │ (~6GB)   │
-│          │ │          │ │          │ │          │
-│ Status:  │ │ Status:  │ │ Status:  │ │ Status:  │
-│ EPHEMER- │ │ EPHEMER- │ │ EPHEMER- │ │ EPHEMER- │
-│ AL       │ │ AL       │ │ AL       │ │ AL       │
-│          │ │          │ │          │ │          │
-│ Life:    │ │ Life:    │ │ Life:    │ │ Life:    │
-│ Spawn →  │ │ Spawn →  │ │ Spawn →  │ │ Spawn →  │
-│ Load →   │ │ Load →   │ │ Load →   │ │ Load →   │
-│ Execute→ │ │ Execute→ │ │ Execute→ │ │ Execute→ │
-│ KILL     │ │ KILL     │ │ KILL     │ │ KILL     │
-│          │ │          │ │          │ │          │
-│ Tools:   │ │ Tools:   │ │ Tools:   │ │ Tools:   │
-│ - read   │ │ - search │ │ - run    │ │ - read   │
-│ - write  │ │ - fetch  │ │ - test   │ │ - analyze│
-│ - compile│ │ - analyze│ │ - report │ │ - review │
-└────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-     │            │            │            │
-     └────────────┴────────────┴────────────┘
+┌──────────┐ ┌──────────┐ ┌──────────┐
+│ CODE     │ │ RESEARCH │ │ TEST     │
+│ WORKER   │ │ WORKER   │ │ WORKER   │
+│(goroutn) │ │(goroutn) │ │(goroutn) │
+│          │ │          │ │          │
+│ Model:   │ │ Model:   │ │ Model:   │
+│ qwen2.5- │ │ qwen2.5  │ │ qwen2.5  │
+│ coder:   │ │ 7b       │ │ 7b       │
+│ 14b      │ │ (~4GB)   │ │ (~4GB)   │
+│ (~8GB)   │ │          │ │          │
+│          │ │          │ │          │
+│ Status:  │ │ Status:  │ │ Status:  │
+│ EPHEMER- │ │ EPHEMER- │ │ EPHEMER- │
+│ AL       │ │ AL       │ │ AL       │
+│          │ │          │ │          │
+│ Life:    │ │ Life:    │ │ Life:    │
+│ Spawn →  │ │ Spawn →  │ │ Spawn →  │
+│ Load →   │ │ Load →   │ │ Load →   │
+│ Execute→ │ │ Execute→ │ │ Execute→ │
+│ KILL     │ │ KILL     │ │ KILL     │
+│          │ │          │ │          │
+│ Tools:   │ │ Tools:   │ │ Tools:   │
+│ - read   │ │ - search │ │ - run    │
+│ - write  │ │ - fetch  │ │ - test   │
+│ - compile│ │ - analyze│ │ - report │
+└────┬─────┘ └────┬─────┘ └────┬─────┘
+     │            │            │
+     └────────────┴────────────┘
                   │
                   ▼
      ┌────────────────────────────┐
@@ -127,7 +127,7 @@ Key Characteristics:
 
 **Role:** Primary interface, intent interpretation, user communication
 
-**Model:** llama3:latest (small, conversational, always loaded - 4GB RAM)
+**Model:** qwen2.5:3b or qwen2.5:7b (better tool calling than llama3, always loaded - 2-4GB RAM)
 
 **Responsibilities:**
 - Understand user requests via intent classification (Chat/Tool/Delegate)
@@ -170,7 +170,7 @@ User: "What's 2+2?" → IntentChat → Wilson answers immediately (~50ms) while 
 
 **Role:** Task decomposition, assignment, progress tracking, quality assurance
 
-**Model:** llama3:latest (planning) or gpt-4o/claude-3-opus for complex tasks
+**Model:** qwen2.5:7b (planning) or larger models for complex decomposition
 
 **Execution Mode:** **On-Demand** (Phase 5 Async)
 - Spawned when Wilson delegates complex tasks
@@ -226,7 +226,7 @@ Subtasks:
 
 **Role:** Web research, documentation reading, data extraction
 
-**Model:** mixtral:8x7b or gpt-4o (analysis, summarization)
+**Model:** qwen2.5:7b or qwen2.5:14b (analysis, summarization, research)
 
 **Responsibilities:**
 - Search for information online
@@ -309,7 +309,7 @@ Subtasks:
 
 **Role:** Test code, validate functionality, report issues
 
-**Model:** phi3:14b or llama3:latest (logical reasoning)
+**Model:** qwen2.5:7b (logical reasoning, test generation)
 
 **Responsibilities:**
 - Write and run tests
@@ -336,7 +336,7 @@ Subtasks:
 
 **Role:** Review work, ensure quality standards, provide feedback
 
-**Model:** claude-3-opus or gpt-4o (critical analysis, reasoning)
+**Model:** qwen2.5:7b or qwen2.5:14b (critical analysis, code review)
 
 **Responsibilities:**
 - Review code quality
@@ -765,10 +765,10 @@ Done:      4GB  (Worker killed immediately)
 ```
 
 **3. Machine Profiles**
-- **Low-end (8GB):** llama3 everywhere, 1 worker max
-- **Mid-range (16GB):** llama3 + qwen2.5-coder:14b, 2 workers
-- **High-end (32GB):** llama3 + qwen2.5-coder:32b + mixtral, 2 workers
-- **Cloud (64GB+):** deepseek-coder:33b + mixtral:8x22b, 4 workers
+- **Low-end (8GB):** qwen2.5:3b for chat/analysis, qwen2.5:7b for code, 1 worker max
+- **Mid-range (16GB):** qwen2.5:7b for chat/analysis, qwen2.5-coder:14b for code, 2 workers (recommended)
+- **High-end (32GB):** qwen2.5:7b for chat, qwen2.5:14b for analysis, qwen2.5-coder:32b for code, 2 workers
+- **Cloud (64GB+):** qwen2.5:14b + deepseek-coder:33b, 4 workers
 
 **4. Status Visibility**
 ```
@@ -806,11 +806,11 @@ After Phase 5 implementation:
 
 ```
 You: "Build a todo app"
-Wilson (llama3, <50ms): "Starting TASK-001. Using Code Agent."
+Wilson (qwen2.5:7b, <50ms): "Starting TASK-001. Using Code Agent."
   [Status: Code Agent (qwen2.5-coder:14b): loading model... ⏳]
 
 You: "What's 2+2?"  [IMMEDIATE!]
-Wilson (llama3, <50ms): "4. Your task is 20% complete."
+Wilson (qwen2.5:7b, <50ms): "4. Your task is 20% complete."
   [Status: Code Agent (qwen2.5-coder:14b): writing code (40%) ⚙️]
 
 You: "What's the status?"
