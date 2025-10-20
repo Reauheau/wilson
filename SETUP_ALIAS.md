@@ -37,7 +37,7 @@ When you type `wilson`, the launcher script:
 alias | grep wilson
 
 # Should show:
-# wilson='/Users/roderick.vannievelt/IdeaProjects/wilson/wilson.sh'
+# wilson='/path/to/wilson/wilson.sh'
 
 # Test it
 cd ~
@@ -52,8 +52,11 @@ If the alias isn't working, manually add it:
 # Open your .zshrc
 nano ~/.zshrc
 
-# Add this line at the end:
-alias wilson='/Users/roderick.vannievelt/IdeaProjects/wilson/wilson.sh'
+# Add this line at the end (adjust path to your installation):
+alias wilson='/path/to/wilson/wilson.sh'
+
+# Or if installed in home directory:
+alias wilson='$HOME/wilson/wilson.sh'
 
 # Save and reload
 source ~/.zshrc
@@ -67,7 +70,8 @@ source ~/.zshrc
 
 **"Permission denied"**
 ```bash
-chmod +x /Users/roderick.vannievelt/IdeaProjects/wilson/wilson.sh
+# Make the launcher script executable (adjust path):
+chmod +x /path/to/wilson/wilson.sh
 ```
 
 **"Ollama failed to start"**
@@ -82,7 +86,7 @@ Remove the alias:
 nano ~/.zshrc
 
 # Or comment it out:
-# alias wilson='/Users/roderick.vannievelt/IdeaProjects/wilson/wilson.sh'
+# alias wilson='/path/to/wilson/wilson.sh'
 ```
 
 ---

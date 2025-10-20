@@ -2,7 +2,9 @@
 # Wilson Launcher Script
 # Automatically starts Ollama if needed and runs Wilson
 
-WILSON_DIR="/Users/roderick.vannievelt/IdeaProjects/wilson/go"
+# Dynamically resolve Wilson directory relative to script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WILSON_DIR="$SCRIPT_DIR/go"
 WILSON_BIN="$WILSON_DIR/wilson"
 
 # Color output
