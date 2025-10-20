@@ -447,11 +447,11 @@ func TestModelReferenceCountingMultiple(t *testing.T) {
 	}
 
 	// Acquire model twice
-	client1, release1, err := manager.AcquireModel(PurposeCode)
+	client1, release1, _, err := manager.AcquireModel(PurposeCode)
 	require.NoError(t, err)
 	require.NotNil(t, client1)
 
-	client2, release2, err := manager.AcquireModel(PurposeCode)
+	client2, release2, _, err := manager.AcquireModel(PurposeCode)
 	require.NoError(t, err)
 	require.NotNil(t, client2)
 
@@ -531,7 +531,7 @@ func TestManagerStop(t *testing.T) {
 	}
 
 	// Acquire model with timeout
-	_, release, err := manager.AcquireModel(PurposeCode)
+	_, release, _, err := manager.AcquireModel(PurposeCode)
 	require.NoError(t, err)
 	release()
 

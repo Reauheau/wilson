@@ -195,19 +195,6 @@ User: "What's 2+2?" → IntentChat → Wilson answers immediately (~50ms) while 
 - `mark_task_complete(task_id)`
 - `request_review(task_id, reviewer_agent)` - Spawns review worker
 
-**Decision Logic:**
-```python
-def assign_task(task):
-    if "research" in task.type:
-        return research_agent
-    elif "code" in task.type:
-        return code_agent
-    elif "test" in task.type:
-        return test_agent
-    elif "review" in task.type:
-        return review_agent
-```
-
 **Example Task Breakdown:**
 ```
 Main Task: "Build web scraper for product prices"
