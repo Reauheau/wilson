@@ -36,11 +36,11 @@ type ChatRequest struct {
 
 // ChatResponse represents a chat response
 type ChatResponse struct {
-	Text         string
-	ToolUsed     string
+	Text          string
+	ToolUsed      string
 	ToolCancelled bool
-	Success      bool
-	Artifacts    []string
+	Success       bool
+	Artifacts     []string
 }
 
 // HandleChat processes a chat request and returns a response
@@ -98,12 +98,28 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 
 	response := fullResponse.String()
 
-	// Check if the response is a tool call
-	isTool, toolCall := registry.IsToolCall(response)
+	// Handle tool call chain (multiple tools in sequence)
+	toolsUsed := []string{}
+	maxIterations := 5 // Prevent infinite loops
+	currentResponse := response
 
-	if isTool && toolCall != nil {
+	for i := 0; i < maxIterations; i++ {
+		// Check if the response is a tool call
+		isTool, toolCall := registry.IsToolCall(currentResponse)
+
+		if !isTool || toolCall == nil {
+			// No more tools to execute, return the final response
+			h.history.AddMessage("assistant", currentResponse)
+			return &ChatResponse{
+				Text:     currentResponse,
+				ToolUsed: strings.Join(toolsUsed, ", "),
+				Success:  true,
+			}, nil
+		}
+
 		// Execute the tool
 		result, err := h.executor.Execute(ctx, *toolCall)
+		toolsUsed = append(toolsUsed, toolCall.Tool)
 
 		if err != nil {
 			// Check if user declined
@@ -111,7 +127,7 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 				return &ChatResponse{
 					Text:          "",
 					Success:       true,
-					ToolUsed:      toolCall.Tool,
+					ToolUsed:      strings.Join(toolsUsed, ", "),
 					ToolCancelled: true,
 				}, nil
 			}
@@ -120,7 +136,7 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 			result = fmt.Sprintf("Error executing tool: %v", err)
 		}
 
-		// Get follow-up response from LLM
+		// Build follow-up messages for next iteration
 		followUpMessages := []ollama.Message{
 			{Role: "system", Content: systemPrompt},
 		}
@@ -133,18 +149,19 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 			})
 		}
 
-		// Add tool result as assistant message (the tool call result)
+		// Add tool call as assistant message
 		followUpMessages = append(followUpMessages, ollama.Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf(`{"tool": "%s", "arguments": %s}`, toolCall.Tool, formatArgs(toolCall.Arguments)),
 		})
 
-		// Add system message with tool result
+		// Add tool result and prompt for next step
 		followUpMessages = append(followUpMessages, ollama.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("Tool '%s' executed successfully. Here are the results:\n\n%s\n\nPlease provide a helpful, natural response to the user based on these results. If the results contain the information the user requested, present it clearly and concisely.", toolCall.Tool, result),
+			Content: fmt.Sprintf("Tool '%s' executed successfully. Here are the results:\n\n%s\n\nIf this was part of a multi-step request and more operations are needed, call the NEXT tool now using JSON format. Otherwise, provide a helpful natural response to the user.", toolCall.Tool, result),
 		})
 
+		// Get follow-up response
 		var followUpResponse strings.Builder
 		err = ollama.AskOllamaWithMessages(ctx, followUpMessages, func(text string) {
 			followUpResponse.WriteString(text)
@@ -156,25 +173,16 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 			}, err
 		}
 
-		finalResponse := followUpResponse.String()
-
-		// Add assistant response to history
-		h.history.AddMessage("assistant", finalResponse)
-
-		return &ChatResponse{
-			Text:     finalResponse,
-			ToolUsed: toolCall.Tool,
-			Success:  true,
-		}, nil
-	} else {
-		// Normal response - add to history
-		h.history.AddMessage("assistant", response)
-
-		return &ChatResponse{
-			Text:    response,
-			Success: true,
-		}, nil
+		currentResponse = followUpResponse.String()
 	}
+
+	// Max iterations reached
+	h.history.AddMessage("assistant", currentResponse)
+	return &ChatResponse{
+		Text:     currentResponse + "\n\n(Note: Reached maximum tool chain limit)",
+		ToolUsed: strings.Join(toolsUsed, ", "),
+		Success:  true,
+	}, nil
 }
 
 // handleDelegation handles delegation intent by calling delegate_task tool
@@ -185,11 +193,11 @@ func (h *ChatHandler) handleDelegation(ctx context.Context, userInput string) (*
 
 	lowerInput := strings.ToLower(userInput)
 	if strings.Contains(lowerInput, "code") || strings.Contains(lowerInput, "implement") ||
-	   strings.Contains(lowerInput, "build") || strings.Contains(lowerInput, "refactor") {
+		strings.Contains(lowerInput, "build") || strings.Contains(lowerInput, "refactor") {
 		toAgent = "code"
 		taskType = "code"
 	} else if strings.Contains(lowerInput, "research") || strings.Contains(lowerInput, "analyze") ||
-	          strings.Contains(lowerInput, "search") || strings.Contains(lowerInput, "find information") {
+		strings.Contains(lowerInput, "search") || strings.Contains(lowerInput, "find information") {
 		toAgent = "analysis"
 		taskType = "research"
 	}

@@ -50,11 +50,11 @@ SQLite (tasks, artifacts, reviews)
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/wilson.git
+git clone https://github.com/reauheau/wilson.git
 cd wilson
 
 # Pull required models
-ollama pull llama3
+ollama pull qwen2.5:7b
 ollama pull qwen2.5-coder:14b
 
 # Build and run
