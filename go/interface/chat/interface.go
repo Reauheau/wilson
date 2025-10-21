@@ -26,26 +26,9 @@ func NewInterface() *Interface {
 
 // ReadInput reads user input from stdin
 func (i *Interface) ReadInput() (string, error) {
-	// Check for active background tasks
-	coordinator := agent.GetGlobalCoordinator()
-	var prompt string
-	if coordinator != nil {
-		activeTasks := coordinator.GetActiveTasks()
-		if len(activeTasks) > 0 {
-			// Show task count and current action
-			task := activeTasks[0] // Show first task's progress
-			if task.CurrentAction != "" {
-				prompt = fmt.Sprintf("You (%d task%s - %s): ", len(activeTasks), pluralize(len(activeTasks)), task.CurrentAction)
-			} else {
-				prompt = fmt.Sprintf("You (%d task%s running): ", len(activeTasks), pluralize(len(activeTasks)))
-			}
-		} else {
-			prompt = "You: "
-		}
-	} else {
-		prompt = "You: "
-	}
-
+	// Always use simple "You:" prompt
+	// Task status updates will appear on separate lines above via printStatus()
+	prompt := "You: "
 	fmt.Print(prompt)
 
 	if !i.scanner.Scan() {

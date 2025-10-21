@@ -14,6 +14,7 @@ import (
 type Coordinator struct {
 	registry      *Registry
 	llmManager    *llm.Manager
+	manager       *ManagerAgent // Task orchestration and decomposition
 	tasks         map[string]*Task
 	results       map[string]*Result
 	mu            sync.RWMutex
@@ -40,6 +41,20 @@ func (c *Coordinator) SetLLMManager(manager *llm.Manager) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.llmManager = manager
+}
+
+// SetManager sets the manager agent for task decomposition
+func (c *Coordinator) SetManager(manager *ManagerAgent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.manager = manager
+}
+
+// GetManager returns the manager agent
+func (c *Coordinator) GetManager() *ManagerAgent {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.manager
 }
 
 // SetMaxConcurrent sets the maximum concurrent workers

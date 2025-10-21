@@ -341,16 +341,30 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 	chatAgent := agent.NewChatAgent(llmMgr, contextMgr)
 	analysisAgent := agent.NewAnalysisAgent(llmMgr, contextMgr)
 	codeAgent := agent.NewCodeAgent(llmMgr, contextMgr)
+	testAgent := agent.NewTestAgent(llmMgr, contextMgr)
+	reviewAgent := agent.NewReviewAgent(llmMgr, contextMgr)
 
 	_ = agentRegistry.Register(chatAgent)
 	_ = agentRegistry.Register(analysisAgent)
 	_ = agentRegistry.Register(codeAgent)
+	_ = agentRegistry.Register(testAgent)
+	_ = agentRegistry.Register(reviewAgent)
 
 	// Create coordinator
 	coordinator := agent.NewCoordinator(agentRegistry)
 
 	// Set LLM manager for model lifecycle (Phase 2)
 	coordinator.SetLLMManager(llmMgr)
+
+	// Initialize Manager Agent with task queue
+	// Use same database as context store for tasks
+	db := contextMgr.GetDB()
+	if db != nil {
+		managerAgent := agent.NewManagerAgent(db)
+		managerAgent.SetLLMManager(llmMgr)
+		managerAgent.SetRegistry(agentRegistry)
+		coordinator.SetManager(managerAgent)
+	}
 
 	// Configure max concurrent workers (default: 2 for 16GB RAM)
 	// coordinator.SetMaxConcurrent(2) // Can be configured via config.yaml

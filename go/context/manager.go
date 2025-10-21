@@ -1,6 +1,7 @@
 package context
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
@@ -8,10 +9,10 @@ import (
 
 // Manager provides high-level context operations
 type Manager struct {
-	store          *Store
-	activeContext  string // Current active context key
-	mu             sync.RWMutex
-	autoStore      bool
+	store         *Store
+	activeContext string // Current active context key
+	mu            sync.RWMutex
+	autoStore     bool
 }
 
 // NewManager creates a new context manager
@@ -30,6 +31,14 @@ func NewManager(dbPath string, autoStore bool) (*Manager, error) {
 // Close closes the context manager
 func (m *Manager) Close() error {
 	return m.store.Close()
+}
+
+// GetDB returns the underlying database connection for task queue
+func (m *Manager) GetDB() *sql.DB {
+	if m.store == nil {
+		return nil
+	}
+	return m.store.db
 }
 
 // SetActiveContext sets the current active context
@@ -206,10 +215,10 @@ func (m *Manager) IsAutoStoreEnabled() bool {
 // Helper function to map tool names to artifact types
 func mapToolToArtifactType(toolName string) string {
 	mapping := map[string]string{
-		"search_web":       ArtifactWebSearch,
-		"fetch_page":       ArtifactWebPage,
-		"extract_content":  ArtifactExtractedText,
-		"analyze_content":  ArtifactAnalysis,
+		"search_web":      ArtifactWebSearch,
+		"fetch_page":      ArtifactWebPage,
+		"extract_content": ArtifactExtractedText,
+		"analyze_content": ArtifactAnalysis,
 	}
 
 	if artifactType, ok := mapping[toolName]; ok {

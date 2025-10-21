@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	contextpkg "wilson/context"
+	"wilson/core/registry"
 	"wilson/llm"
 )
 
@@ -28,12 +29,13 @@ func NewTestAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Test
 		"write_file",     // Create new test files
 		"modify_file",    // Update existing tests
 		"append_to_file", // Add new test cases
+		// Test execution
+		"run_tests", // Execute go test
 		// Context and artifacts
 		"search_artifacts",
 		"retrieve_context",
 		"store_artifact",
 		"leave_note",
-		// Future: run_tests, coverage_report, lint, etc.
 	})
 	base.SetCanDelegate(false)
 
@@ -72,51 +74,69 @@ func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		return result, err
 	}
 
-	// Store response as test artifact
-	artifact, err := a.StoreArtifact(
-		"test",
+	// Execute tools via AgentToolExecutor (same pattern as CodeAgent)
+	executor := NewAgentToolExecutor(
+		registry.NewExecutor(),
+		a.llmManager,
+	)
+
+	execResult, err := executor.ExecuteAgentResponse(
+		ctx,
 		response,
+		systemPrompt,
+		userPrompt,
+		a.purpose,
+		task.ID,
+	)
+
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Execution failed: %v", err)
+		result.Output = execResult.Output
+		return result, err
+	}
+
+	// Store response as artifact
+	artifact, artifactErr := a.StoreArtifact(
+		"test_execution",
+		execResult.Output,
 		"test_agent",
 	)
-	if err == nil {
+	if artifactErr == nil {
 		result.Artifacts = append(result.Artifacts, fmt.Sprintf("%d", artifact.ID))
 	}
 
-	// Leave note for Review Agent
-	noteText := fmt.Sprintf("Completed test design: %s. Tests stored as artifact #%d. Ready for review.",
-		task.Description, artifact.ID)
-	_ = a.LeaveNote("Review", noteText)
-
 	result.Success = true
-	result.Output = response
+	result.Output = execResult.Output
 	result.Metadata = map[string]interface{}{
-		"model":       "chat",
-		"agent_type":  "test",
-		"artifact_id": artifact.ID,
+		"model":      "chat",
+		"agent_type": "test",
+		"tools_used": execResult.ToolsExecuted,
 	}
 
 	return result, nil
 }
 
 func (a *TestAgent) buildSystemPrompt() string {
-	return `You are Wilson's Test Agent - a specialist in quality assurance, test design, and validation.
+	return `You are Wilson's Test Agent - a specialist in test execution and validation.
 
-=== CRITICAL: ANTI-HALLUCINATION RULES ===
-YOU MUST ACTUALLY CREATE TEST FILES - NEVER JUST DESCRIBE TESTS!
+=== CRITICAL: TOOL-BASED EXECUTION ===
+YOU MUST USE TOOLS - NEVER DESCRIBE WHAT YOU WOULD DO!
 
-❌ NEVER DO THIS (HALLUCINATION):
-"I'll write tests for the SaveUser function..."
-"Here are the test cases: 1. Test valid user..."
-"You should write a test that checks..."
-"The test would look like this: [shows code]"
+For "Run tests" tasks:
+✅ CORRECT: {"tool": "run_tests", "arguments": {"path": "/path/to/package"}}
+❌ WRONG: "I will run the tests..." or "The tests should be executed..."
 
-✅ ALWAYS DO THIS (ACTUAL EXECUTION):
-{"tool": "write_file", "arguments": {"path": "user_test.go", "content": "package user\n\nfunc TestSaveUser..."}}
-{"tool": "run_tests", "arguments": {"package": "user"}}
-{"tool": "modify_file", "arguments": {"path": "user_test.go", "old_content": "...", "new_content": "..."}}
+For "Create tests" tasks:
+✅ CORRECT: {"tool": "write_file", "arguments": {"path": "main_test.go", "content": "package main..."}}
+❌ WRONG: "I'll write tests..." or "Here are the test cases..."
 
-RULE: If you mention a test, you MUST create it with write_file!
-RULE: Always run tests with run_tests tool after creating them!
+=== YOUR ROLE ===
+1. **Execute existing tests**: Use run_tests tool on existing test files
+2. **Create new tests**: Use write_file to create test files
+3. **Verify results**: Report pass/fail status
+
+NO DESCRIPTIONS. ONLY TOOL CALLS.
 
 === CAPABILITIES ===
 - Test case design (unit, integration, end-to-end)

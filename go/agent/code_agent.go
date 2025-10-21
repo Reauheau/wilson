@@ -190,8 +190,7 @@ Call the missing tool now.`,
 			return result, fmt.Errorf("workflow validation failed: %w", err)
 		}
 
-		// Workflow validation passed!
-		fmt.Printf("✓ [Workflow Validation] Passed - correct tool sequence followed\n")
+		// Workflow validation passed - continue to verification
 		break
 	}
 
@@ -273,13 +272,15 @@ You delegate to the code model via generate_code tool, then save and validate.
 2. **[AUTO-INJECTED]** - System saves code automatically
    → write_file happens automatically after generate_code
 
-3. **compile** - REQUIRED - Validate code works
-   → ALWAYS call compile after code is saved
-   → Check for errors, fix if needed
+3. **[AUTO-INJECTED]** - System compiles automatically
+   → compile happens automatically after write_file
 
-4. **STOP** - Task complete once compile succeeds
+4. **REPEAT** - If user asked for multiple files (main + tests), call generate_code again
 
-CRITICAL: After generate_code completes, you MUST call compile. Don't stop without compiling.
+5. **DONE** - Only when ALL requested files are created
+
+CRITICAL: If user asks for "write a test file", you MUST generate BOTH main.go AND test file.
+Don't stop after first file. Generate ALL files user requested.
 
 === TOOL USAGE RULES ===
 
@@ -306,30 +307,44 @@ Before implementing, understand context:
 
 === EXAMPLE WORKFLOW ===
 
+**Example 1: Single file**
 Task: "Create Go program that opens Spotify"
 
-Step 1: Generate
 {"tool": "generate_code", "arguments": {
   "language": "go",
   "description": "CLI that opens applications using exec.Command",
   "requirements": ["macOS support", "Error handling"]
 }}
+→ System saves to main.go, compiles → Done
 
-Step 2: [System auto-saves to main.go]
+**Example 2: Multiple files (MAIN + TEST)**
+Task: "Create Go program that opens apps. Also write a testfile."
 
-Step 3: Compile
-{"tool": "compile", "arguments": {"target": "/path"}}
+Step 1: Generate main program
+{"tool": "generate_code", "arguments": {
+  "language": "go",
+  "description": "CLI that opens applications using exec.Command",
+  "requirements": ["macOS support", "Error handling"]
+}}
+→ System saves to main.go, compiles
 
-Step 4: Done (if compile succeeds)
+Step 2: Generate test file
+{"tool": "generate_code", "arguments": {
+  "language": "go",
+  "description": "Test file for the application opener CLI",
+  "requirements": ["Unit tests", "Test opening function"]
+}}
+→ System saves to main_test.go, compiles → Done
 
 === ERROR RECOVERY ===
 
-If compile fails:
+If compile fails (auto-injected compile returns errors):
 1. Read error message carefully
-2. Call generate_code with error feedback
-3. Let system save new code automatically
-4. Compile again
-5. Repeat until success
+2. Call generate_code again with error feedback
+3. System auto-saves and auto-compiles again
+4. Repeat until success
+
+You only fix errors by calling generate_code with better instructions.
 
 === SECURITY & QUALITY ===
 

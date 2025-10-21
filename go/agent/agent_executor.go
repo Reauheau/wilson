@@ -10,6 +10,24 @@ import (
 	"wilson/llm"
 )
 
+// ANSI color codes and control sequences
+const (
+	colorReset     = "\033[0m"
+	colorLightGrey = "\033[37m"
+	colorGreen     = "\033[32m"
+	clearLine      = "\r\033[K" // Return to start and clear line
+)
+
+// printStatus prints a status message in light grey, clearing current line first
+func printStatus(message string) {
+	fmt.Printf("%s%s%s%s\n", clearLine, colorLightGrey, message, colorReset)
+}
+
+// printSuccess prints a success message in green, clearing current line first
+func printSuccess(message string) {
+	fmt.Printf("%s%s%s%s\n", clearLine, colorGreen, message, colorReset)
+}
+
 // AgentToolExecutor handles tool execution for specialized agents
 // This ensures agents actually execute tools instead of just describing them
 type AgentToolExecutor struct {
@@ -23,7 +41,7 @@ func NewAgentToolExecutor(executor *registry.Executor, llmManager *llm.Manager) 
 	return &AgentToolExecutor{
 		executor:      executor,
 		llmManager:    llmManager,
-		maxIterations: 7, // Balanced: allows multi-file tasks but prevents runaway
+		maxIterations: 9, // Allows multi-file tasks with compile step
 	}
 }
 
@@ -78,6 +96,19 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			}
 
 			// Success - tools were executed and now we have final response
+			// Only show "Task complete!" for code generation tasks (not for chat/delegation tasks)
+			if len(result.ToolsExecuted) > 0 {
+				hasCodeTask := false
+				for _, tool := range result.ToolsExecuted {
+					if tool == "generate_code" || tool == "write_file" || tool == "compile" {
+						hasCodeTask = true
+						break
+					}
+				}
+				if hasCodeTask {
+					printSuccess("Task complete!")
+				}
+			}
 			result.Success = true
 			result.Output = currentResponse
 			return result, nil
@@ -117,8 +148,21 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			targetPath := "/tmp/generated_code.go"
 			if lang, ok := toolCall.Arguments["language"].(string); ok {
 				if desc, ok := toolCall.Arguments["description"].(string); ok {
-					// Try to infer filename from description
-					if strings.Contains(strings.ToLower(desc), "test") {
+					// Check if this is for a test file - check both description and requirements
+					isTestFile := strings.Contains(strings.ToLower(desc), "test")
+					if reqs, ok := toolCall.Arguments["requirements"].([]interface{}); ok {
+						for _, req := range reqs {
+							if reqStr, ok := req.(string); ok {
+								if strings.Contains(strings.ToLower(reqStr), "test") {
+									isTestFile = true
+									break
+								}
+							}
+						}
+					}
+
+					// Try to infer filename from description/requirements
+					if isTestFile {
 						if lang == "go" {
 							targetPath = "main_test.go"
 						} else {
@@ -139,6 +183,13 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				targetPath = "/Users/roderick.vannievelt/IdeaProjects/wilsontestdir/" + targetPath
 			}
 
+			// Extract filename for display
+			filename := targetPath
+			if idx := strings.LastIndex(targetPath, "/"); idx != -1 {
+				filename = targetPath[idx+1:]
+			}
+			printStatus(fmt.Sprintf("Generating code for %s...", filename))
+
 			// Auto-inject write_file call
 			writeFileCall := ToolCall{
 				Tool: "write_file",
@@ -147,8 +198,6 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 					"content": toolResult, // The generated code
 				},
 			}
-
-			fmt.Printf("→ Auto-injecting write_file to save generated code to %s\n", targetPath)
 
 			// Execute write_file
 			writeResult, writeErr := ate.executor.Execute(ctx, writeFileCall)
@@ -170,28 +219,65 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				Role:    "user",
 				Content: fmt.Sprintf("Tool 'write_file' executed successfully (auto-injected). Result:\n\n%s", writeResult),
 			})
-		}
 
-		// Check if we should stop after successful compile
-		// For code tasks: generate → write → compile should be enough
-		if toolCall.Tool == "compile" && !strings.Contains(toolResult, "error") && !strings.Contains(toolResult, "failed") {
-			// Compile succeeded - check if we have the required sequence
-			hasGenerate := false
-			hasWrite := false
-			for _, t := range result.ToolsExecuted {
-				if t == "generate_code" {
-					hasGenerate = true
-				}
-				if t == "write_file" || t == "modify_file" || t == "append_to_file" {
-					hasWrite = true
-				}
+			// AUTO-INJECT: After write_file succeeds, immediately call compile
+			// This completes the mandatory workflow: generate → write → compile
+			// Extract project directory from target path
+			compileTarget := targetPath
+			if idx := strings.LastIndex(targetPath, "/"); idx != -1 {
+				compileTarget = targetPath[:idx]
 			}
 
-			// If we have generate → write → compile, we're done
-			if hasGenerate && hasWrite {
+			// Extract directory name for display
+			dirName := compileTarget
+			if idx := strings.LastIndex(compileTarget, "/"); idx != -1 {
+				dirName = compileTarget[idx+1:]
+			}
+			printStatus(fmt.Sprintf("Compiling %s...", dirName))
+
+			// Auto-inject compile call
+			compileCall := ToolCall{
+				Tool: "compile",
+				Arguments: map[string]interface{}{
+					"target": compileTarget,
+				},
+			}
+
+			// Execute compile
+			compileResult, compileErr := ate.executor.Execute(ctx, compileCall)
+			result.ToolsExecuted = append(result.ToolsExecuted, "compile")
+
+			if compileErr != nil {
+				result.Error = fmt.Sprintf("Auto-injected compile failed: %v", compileErr)
+				return result, fmt.Errorf("auto-injected compile failed: %w", compileErr)
+			}
+
+			result.ToolResults = append(result.ToolResults, compileResult)
+
+			// Update conversation history with the compile action
+			conversationHistory = append(conversationHistory, llm.Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"target": "%s"}}`, compileTarget),
+			})
+			conversationHistory = append(conversationHistory, llm.Message{
+				Role:    "user",
+				Content: fmt.Sprintf("Tool 'compile' executed successfully (auto-injected). Result:\n\n%s", compileResult),
+			})
+
+			// Check compile result
+			isCompileSuccess := strings.Contains(compileResult, `"success": true`) || strings.Contains(compileResult, "Compilation successful")
+			if isCompileSuccess {
+				printStatus("Compilation successful")
+
+				// ATOMIC TASK PRINCIPLE: Exit immediately after successful compilation
+				// Each subtask should do ONE thing: generate 1 file, make 1 change
+				// ManagerAgent orchestrates the sequence of subtasks
 				result.Success = true
-				result.Output = fmt.Sprintf("Code generation completed successfully:\n\n%s", toolResult)
+				result.Output = fmt.Sprintf("Code generated and compiled successfully.\n\nTools used: %v", result.ToolsExecuted)
 				return result, nil
+			} else {
+				// Compile had errors - show status and continue for retry
+				printStatus("Compile errors detected, attempting fix...")
 			}
 		}
 
@@ -200,9 +286,15 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			Role:    "assistant",
 			Content: fmt.Sprintf(`{"tool": "%s", "arguments": %s}`, toolCall.Tool, formatArgsForAgent(toolCall.Arguments)),
 		})
+
+		// This code is now unreachable after successful compilation due to early return above
+		// Keeping it for non-compile tool feedback
+		var feedbackMsg string
+		feedbackMsg = fmt.Sprintf("Tool '%s' executed successfully. Result:\n\n%s\n\nIf you need to call more tools to complete the task, do so now. Otherwise, provide a summary of what was accomplished.", toolCall.Tool, toolResult)
+
 		conversationHistory = append(conversationHistory, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("Tool '%s' executed successfully. Result:\n\n%s\n\nIf you need to call more tools to complete the task, do so now. Otherwise, provide a summary of what was accomplished.", toolCall.Tool, toolResult),
+			Content: feedbackMsg,
 		})
 
 		// Get next response from LLM (might call another tool or finish)
