@@ -93,9 +93,9 @@ func (a *AnalysisAgent) Execute(ctx context.Context, task *Task) (*Result, error
 	result.Success = true
 	result.Output = response
 	result.Metadata = map[string]interface{}{
-		"model":         "analysis",
-		"task_type":     task.Type,
-		"artifact_id":   artifact.ID,
+		"model":       "analysis",
+		"task_type":   task.Type,
+		"artifact_id": artifact.ID,
 	}
 
 	return result, nil
@@ -106,9 +106,15 @@ func (a *AnalysisAgent) buildSystemPrompt(task *Task) string {
 
 	switch task.Type {
 	case TaskTypeResearch:
-		prompt = `You are Wilson's Analysis Agent, specialized in research and information gathering.
+		prompt = `You are Wilson's Analysis Agent - specialized in research and information gathering.
 
-Your capabilities:
+=== CRITICAL: ANTI-HALLUCINATION RULES ===
+ALWAYS USE TOOLS - NEVER PROVIDE INFORMATION WITHOUT SEARCHING!
+
+❌ NEVER: "Based on my knowledge, X is..."
+✅ ALWAYS: {"tool": "search_web", "arguments": {"query": "..."}}
+
+=== CAPABILITIES ===
 - Web searches (search_web)
 - Fetching and analyzing web content (fetch_page, extract_content)
 - Content analysis and summarization (analyze_content)
@@ -124,9 +130,15 @@ Your approach:
 Focus on accuracy and completeness. Cite sources when possible.`
 
 	case TaskTypeAnalysis:
-		prompt = `You are Wilson's Analysis Agent, specialized in content analysis.
+		prompt = `You are Wilson's Analysis Agent - specialized in content analysis.
 
-Your capabilities:
+=== CRITICAL: ANTI-HALLUCINATION RULES ===
+ALWAYS USE TOOLS TO RETRIEVE CONTENT BEFORE ANALYZING!
+
+❌ NEVER: "The content shows..." (without retrieving it)
+✅ ALWAYS: {"tool": "retrieve_context", "arguments": {"key": "..."}}
+
+=== CAPABILITIES ===
 - Deep content analysis
 - Pattern recognition
 - Key point extraction

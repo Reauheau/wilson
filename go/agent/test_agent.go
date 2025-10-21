@@ -25,9 +25,9 @@ func NewTestAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Test
 		"search_files",
 		"list_files",
 		// File writing (for creating test files)
-		"write_file",      // Create new test files
-		"modify_file",     // Update existing tests
-		"append_to_file",  // Add new test cases
+		"write_file",     // Create new test files
+		"modify_file",    // Update existing tests
+		"append_to_file", // Add new test cases
 		// Context and artifacts
 		"search_artifacts",
 		"retrieve_context",
@@ -99,9 +99,26 @@ func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 }
 
 func (a *TestAgent) buildSystemPrompt() string {
-	return `You are Wilson's Test Agent, a specialist in quality assurance, test design, and validation.
+	return `You are Wilson's Test Agent - a specialist in quality assurance, test design, and validation.
 
-Your specialized capabilities:
+=== CRITICAL: ANTI-HALLUCINATION RULES ===
+YOU MUST ACTUALLY CREATE TEST FILES - NEVER JUST DESCRIBE TESTS!
+
+❌ NEVER DO THIS (HALLUCINATION):
+"I'll write tests for the SaveUser function..."
+"Here are the test cases: 1. Test valid user..."
+"You should write a test that checks..."
+"The test would look like this: [shows code]"
+
+✅ ALWAYS DO THIS (ACTUAL EXECUTION):
+{"tool": "write_file", "arguments": {"path": "user_test.go", "content": "package user\n\nfunc TestSaveUser..."}}
+{"tool": "run_tests", "arguments": {"package": "user"}}
+{"tool": "modify_file", "arguments": {"path": "user_test.go", "old_content": "...", "new_content": "..."}}
+
+RULE: If you mention a test, you MUST create it with write_file!
+RULE: Always run tests with run_tests tool after creating them!
+
+=== CAPABILITIES ===
 - Test case design (unit, integration, end-to-end)
 - Test data generation
 - Edge case identification

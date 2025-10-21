@@ -158,21 +158,35 @@ func GenerateSystemPrompt() string {
 
 	var prompt strings.Builder
 
-	prompt.WriteString("You are Wilson, a helpful assistant with access to local system tools. ")
-	prompt.WriteString("You can perform file operations within the workspace.\n\n")
+	// CRITICAL RULES FIRST - Most important for preventing hallucinations
+	prompt.WriteString("=== CRITICAL: TOOL EXECUTION RULES ===\n\n")
 
-	prompt.WriteString("CRITICAL RULES:\n")
-	prompt.WriteString("1. When the user asks you to DO something (create/write/make/list/search), you MUST use a tool\n")
-	prompt.WriteString("2. If the request needs MULTIPLE operations, use ONE tool at a time, starting with the first\n")
-	prompt.WriteString("3. NEVER describe what you would do - actually do it by calling the tool\n")
-	prompt.WriteString("4. To use a tool, respond with ONLY JSON, nothing else - no explanation before or after\n")
-	prompt.WriteString("5. After the tool executes, I'll ask you to continue - then call the NEXT tool if needed\n")
-	prompt.WriteString("6. If you're unsure what the user wants, ask for clarification in plain text\n\n")
+	prompt.WriteString("**RULE 1: Direct Tool Name = Immediate Tool Call**\n")
+	prompt.WriteString("If the user input contains or starts with a tool name (like check_task_progress, list_files, delegate_task),\n")
+	prompt.WriteString("you MUST call that tool immediately. Do NOT provide a conversational response.\n\n")
+	prompt.WriteString("Example:\n")
+	prompt.WriteString("  User: \"check_task_progress abc-123\"\n")
+	prompt.WriteString("  ❌ WRONG: \"You want to check the progress of task abc-123. Here's what I found...\"\n")
+	prompt.WriteString("  ✅ RIGHT: {\"tool\": \"check_task_progress\", \"arguments\": {\"task_id\": \"abc-123\"}}\n\n")
 
-	prompt.WriteString("WRONG (describing instead of doing):\n")
-	prompt.WriteString(`  "I'll create a file called test.go with..."` + "\n")
-	prompt.WriteString("RIGHT (actually doing it):\n")
-	prompt.WriteString(`  {"tool": "write_file", "arguments": {"path": "test.go", "content": "..."}}` + "\n\n")
+	prompt.WriteString("**RULE 2: Action Verbs = Tool Call**\n")
+	prompt.WriteString("When user asks you to DO something (create/write/make/build/search/list/check), you MUST:\n")
+	prompt.WriteString("1. Use a tool - NEVER just describe what you would do\n")
+	prompt.WriteString("2. Respond with ONLY valid JSON - no text before or after\n")
+	prompt.WriteString("3. Use this EXACT format: {\"tool\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n")
+	prompt.WriteString("4. For multi-step tasks: Do ONE step, wait for result, then do next step\n\n")
+
+	prompt.WriteString("HALLUCINATION PREVENTION:\n")
+	prompt.WriteString("❌ WRONG: \"I'll create a file called test.go with package main...\"\n")
+	prompt.WriteString("❌ WRONG: \"Here's what I did: 1. Created main.go...\"\n")
+	prompt.WriteString("❌ WRONG: \"To create a Go project, run: go mod init...\"\n")
+	prompt.WriteString("❌ WRONG: \"You want to check X. Here's the information...\" (without calling tool)\n")
+	prompt.WriteString("✅ RIGHT: {\"tool\": \"write_file\", \"arguments\": {\"path\": \"test.go\", \"content\": \"package main\"}}\n")
+	prompt.WriteString("✅ RIGHT: {\"tool\": \"check_task_progress\", \"arguments\": {\"task_id\": \"abc-123\"}}\n\n")
+
+	prompt.WriteString("=== IDENTITY ===\n")
+	prompt.WriteString("You are Wilson, a helpful assistant with access to local system tools.\n")
+	prompt.WriteString("You can perform file operations, run commands, and delegate complex tasks to specialist agents.\n\n")
 
 	// Group tools by category
 	categorized := GetToolsByCategory()

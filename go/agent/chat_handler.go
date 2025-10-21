@@ -51,6 +51,11 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 	// Classify user intent
 	intent := ClassifyIntent(userInput)
 
+	// Handle code creation intent - delegate to Code Agent (prevents hallucinations)
+	if intent == IntentCode {
+		return h.handleCodeCreation(ctx, userInput)
+	}
+
 	// Handle delegation intent specially
 	if intent == IntentDelegate {
 		// Complex task - delegate to specialist agent
@@ -97,6 +102,44 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 	}
 
 	response := fullResponse.String()
+
+	// STRICT VALIDATION: If intent was IntentTool but response is not a tool call, that's a hallucination
+	isTool, toolCall := registry.IsToolCall(response)
+	if intent == IntentTool && (!isTool || toolCall == nil) {
+		// Model hallucinated instead of calling tool - retry with ultra-strict prompt
+		retryPrompt := "CRITICAL ERROR: You MUST respond with ONLY valid JSON tool call format.\n\n"
+		retryPrompt += "The user's request requires calling a tool. You MUST NOT provide conversational responses.\n\n"
+		retryPrompt += "Original request: " + userInput + "\n\n"
+		retryPrompt += "Required response format: {\"tool\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n\n"
+		retryPrompt += "Respond ONLY with JSON. No text before or after. No explanations."
+
+		// Try one more time with strict enforcement
+		retryMessages := []ollama.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userInput},
+			{Role: "assistant", Content: response}, // Show the wrong response
+			{Role: "user", Content: retryPrompt},
+		}
+
+		var retryResponse strings.Builder
+		err = ollama.AskOllamaWithMessages(ctx, retryMessages, func(text string) {
+			retryResponse.WriteString(text)
+		})
+
+		if err == nil {
+			response = retryResponse.String()
+			// Check again if it's a tool call now
+			isTool, toolCall = registry.IsToolCall(response)
+		}
+
+		// If STILL not a tool call, return error
+		if !isTool || toolCall == nil {
+			return &ChatResponse{
+				Text:    "Error: Model failed to generate proper tool call. This may be a model limitation. Please try rephrasing your request or use the tool name directly (e.g., 'check_task_progress <id>').",
+				Success: false,
+			}, fmt.Errorf("model hallucination: expected tool call for IntentTool but got conversational response")
+		}
+	}
 
 	// Handle tool call chain (multiple tools in sequence)
 	toolsUsed := []string{}
@@ -186,6 +229,36 @@ func (h *ChatHandler) HandleChat(ctx context.Context, userInput string) (*ChatRe
 }
 
 // handleDelegation handles delegation intent by calling delegate_task tool
+// handleCodeCreation delegates code/project creation tasks directly to Code Agent
+// This prevents hallucinations where Wilson describes creating files instead of actually creating them
+func (h *ChatHandler) handleCodeCreation(ctx context.Context, userInput string) (*ChatResponse, error) {
+	// Build delegation tool call specifically for Code Agent
+	toolCall := ToolCall{
+		Tool: "delegate_task",
+		Arguments: map[string]interface{}{
+			"to_agent":    "code",
+			"task_type":   "code",
+			"description": userInput,
+		},
+	}
+
+	// Execute delegation to Code Agent
+	result, err := h.executor.Execute(ctx, toolCall)
+	if err != nil {
+		return &ChatResponse{
+			Text:    fmt.Sprintf("Failed to delegate to Code Agent: %v", err),
+			Success: false,
+		}, err
+	}
+
+	// Return Code Agent's response
+	return &ChatResponse{
+		Text:     result,
+		ToolUsed: "delegate_task (Code Agent)",
+		Success:  true,
+	}, nil
+}
+
 func (h *ChatHandler) handleDelegation(ctx context.Context, userInput string) (*ChatResponse, error) {
 	// Determine which agent to delegate to based on keywords
 	toAgent := "analysis" // Default

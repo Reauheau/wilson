@@ -14,6 +14,8 @@ const (
 	IntentTool
 	// IntentDelegate - Complex task requiring delegation to Manager Agent
 	IntentDelegate
+	// IntentCode - Code/project creation requiring Code Agent
+	IntentCode
 )
 
 // String returns the string representation of an intent
@@ -25,6 +27,8 @@ func (i Intent) String() string {
 		return "tool"
 	case IntentDelegate:
 		return "delegate"
+	case IntentCode:
+		return "code"
 	default:
 		return "unknown"
 	}
@@ -40,29 +44,39 @@ var toolKeywords = []string{
 	"run", "execute", "compile", "test",
 	"analyze", "parse", "inspect",
 	"download", "fetch",
+	// Task management operations
+	"check_task_progress", "task progress", "check progress", "task status",
+	"list tasks", "show tasks",
 	// Filesystem operations (high priority - checked first)
 	"mkdir", "make directory", "make dir", "make folder",
 	"create directory", "create a directory", "create dir", "create a dir",
 	"create folder", "create a folder",
 }
 
-// Delegation keywords (complex tasks)
+// Code/project creation keywords (should go to Code Agent)
+var codeKeywords = []string{
+	"create project", "create a project", "new project",
+	"create go file", "create .go", "create a go file",
+	"create python file", "create .py",
+	"create javascript", "create .js",
+	"write code", "write a program", "write a script",
+	"build app", "build an app", "build a app",
+	"build program", "build a program",
+	"make a go", "make go file",
+	"go files that", "go file that",
+	"create files", "create multiple files",
+	"implement function", "implement a function",
+	"app that", "program that", "script that", "tool that",
+}
+
+// Delegation keywords (complex multi-agent tasks)
 var delegationKeywords = []string{
-	"build", "implement", "develop",
-	"create app", "create an app", "create a app",
-	"create tool", "create a tool", "create an tool",
-	"create system", "create a system", "create an system",
-	"create application", "create an application", "create a application",
-	"create project", "create a project",
-	"create service", "create a service",
-	"create api", "create an api", "create a api",
-	"create web", "create a web",
-	"scraper", "parser", "cli tool", "web scraper",
 	"refactor", "restructure", "reorganize",
 	"fix bug", "fix the bug", "fix a bug", "debug",
 	"add feature", "enhance", "improve",
 	"design", "architect",
-	"generate", "scaffold",
+	"full application", "complete system",
+	"end to end", "from scratch",
 }
 
 // ClassifyIntent determines the user's intent based on their input
@@ -71,7 +85,14 @@ func ClassifyIntent(input string) Intent {
 
 	// Strategy: Check for specific patterns first, then fall back to general patterns
 
-	// 1. Check for SPECIFIC delegation patterns (complex multi-word tasks)
+	// 1. Check for CODE CREATION patterns (highest priority for hallucination prevention)
+	for _, keyword := range codeKeywords {
+		if strings.Contains(lowerInput, keyword) {
+			return IntentCode
+		}
+	}
+
+	// 2. Check for delegation patterns (complex multi-agent tasks)
 	for _, keyword := range delegationKeywords {
 		if strings.Contains(lowerInput, keyword) {
 			// Don't delegate simple filesystem operations even if they match
@@ -81,7 +102,7 @@ func ClassifyIntent(input string) Intent {
 		}
 	}
 
-	// 2. Check for tool keywords (simple commands)
+	// 3. Check for tool keywords (simple commands)
 	for _, keyword := range toolKeywords {
 		if strings.Contains(lowerInput, keyword) {
 			// Additional heuristics to avoid false positives
