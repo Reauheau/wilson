@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	contextpkg "wilson/context"
+	"wilson/core/registry"
 	"wilson/llm"
 )
 
@@ -17,7 +18,23 @@ type ChatAgent struct {
 // NewChatAgent creates a new chat agent
 func NewChatAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *ChatAgent {
 	base := NewBaseAgent("chat", llm.PurposeChat, llmManager, contextMgr)
-	base.SetAllowedTools([]string{"*"}) // Can use all tools
+
+	// ChatAgent can ONLY use orchestration tools - must delegate specialized work
+	base.SetAllowedTools([]string{
+		// Task delegation and coordination
+		"delegate_task",
+		"check_task_progress",
+		"check_task_status",
+		"get_task_queue",
+
+		// Context and communication
+		"search_artifacts",
+		"retrieve_context",
+		"leave_note",
+
+		// Simple conversational tools (non-invasive)
+		"list_files", // Read-only, safe for chat to use
+	})
 	base.SetCanDelegate(true)
 
 	return &ChatAgent{
@@ -49,7 +66,7 @@ func (a *ChatAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	systemPrompt := a.buildSystemPrompt()
 	userPrompt := a.buildUserPrompt(task, currentCtx)
 
-	// Call LLM
+	// Call LLM with validation
 	response, err := a.CallLLM(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		result.Success = false
@@ -57,10 +74,32 @@ func (a *ChatAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		return result, err
 	}
 
+	// Execute tools via AgentToolExecutor (same as Code Agent)
+	executor := NewAgentToolExecutor(
+		registry.NewExecutor(),
+		a.llmManager,
+	)
+
+	execResult, err := executor.ExecuteAgentResponse(
+		ctx,
+		response,
+		systemPrompt,
+		userPrompt,
+		a.purpose,
+		task.ID,
+	)
+
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Execution failed: %v", err)
+		result.Output = execResult.Output
+		return result, err
+	}
+
 	// Store response as artifact
 	artifact, err := a.StoreArtifact(
 		contextpkg.ArtifactLLMResponse,
-		response,
+		execResult.Output,
 		"chat_agent",
 	)
 	if err == nil {
@@ -68,28 +107,71 @@ func (a *ChatAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	}
 
 	result.Success = true
-	result.Output = response
+	result.Output = execResult.Output
 	result.Metadata = map[string]interface{}{
-		"model": "chat",
+		"model":          "chat",
+		"tools_executed": execResult.ToolsExecuted,
 	}
 
 	return result, nil
 }
 
 func (a *ChatAgent) buildSystemPrompt() string {
-	basePrompt := `You are Wilson's Chat Agent, the main orchestrator of a multi-agent system.
+	// Start with shared core principles
+	basePrompt := BuildSharedPrompt("Chat Agent")
 
-Your responsibilities:
-- Understand user requests and break them into subtasks
-- Delegate specialized work to other agents (analysis, code, research)
-- Synthesize results from multiple agents
-- Provide natural, helpful responses to users
+	// Add Chat Agent specific instructions
+	basePrompt += `
+You are the ROUTER and ORCHESTRATOR. You delegate specialized work.
 
-You can delegate tasks to:
-- analysis agent: For research, web searches, content analysis, summarization
-- code agent: For code generation, code review, technical implementation
+=== YOUR RESPONSIBILITIES ===
 
-When you need specialized help, explain what you need clearly and provide context.`
+1. **Understand** user requests
+2. **Delegate** to specialist agents (code, analysis)
+3. **Monitor** task progress
+4. **Respond** to user with results
+
+You do NOT write code. You do NOT do research. You DELEGATE.
+
+=== DELEGATION RULES ===
+
+**Code Tasks** - ALWAYS delegate to code agent:
+- Writing code, generating programs
+- Creating/modifying files
+- Building, compiling, testing
+- Code analysis, refactoring
+
+**Research Tasks** - Delegate to analysis agent:
+- Web searches, research
+- Content analysis, summarization
+- Information gathering
+
+**Simple Tasks** - Handle directly:
+- Greetings, casual chat
+- Status checks (check_task_progress)
+- Simple file listings
+
+=== DELEGATION FORMAT ===
+
+{"tool": "delegate_task", "arguments": {
+  "to_agent": "code",
+  "task_type": "code",
+  "description": "Complete description of what to do"
+}}
+
+=== EXAMPLES ===
+
+User: "Create a Go program that opens Spotify"
+→ {"tool": "delegate_task", "arguments": {"to_agent": "code", "task_type": "code", "description": "Create a Go program that opens Spotify on macOS"}}
+
+User: "Research Ollama API"
+→ {"tool": "delegate_task", "arguments": {"to_agent": "analysis", "task_type": "research", "description": "Research Ollama API endpoints and usage"}}
+
+User: "Hello!"
+→ "Hello! I'm Wilson, your local AI assistant. What can I help you with?"
+
+=== REMEMBER ===
+You are the interface. Specialists do the work. Delegate efficiently.`
 
 	// Phase 4: Add active task awareness
 	coordinator := GetGlobalCoordinator()

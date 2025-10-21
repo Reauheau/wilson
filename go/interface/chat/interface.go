@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"wilson/agent"
 	"wilson/ui"
 )
 
@@ -25,7 +26,27 @@ func NewInterface() *Interface {
 
 // ReadInput reads user input from stdin
 func (i *Interface) ReadInput() (string, error) {
-	fmt.Print("You: ")
+	// Check for active background tasks
+	coordinator := agent.GetGlobalCoordinator()
+	var prompt string
+	if coordinator != nil {
+		activeTasks := coordinator.GetActiveTasks()
+		if len(activeTasks) > 0 {
+			// Show task count and current action
+			task := activeTasks[0] // Show first task's progress
+			if task.CurrentAction != "" {
+				prompt = fmt.Sprintf("You (%d task%s - %s): ", len(activeTasks), pluralize(len(activeTasks)), task.CurrentAction)
+			} else {
+				prompt = fmt.Sprintf("You (%d task%s running): ", len(activeTasks), pluralize(len(activeTasks)))
+			}
+		} else {
+			prompt = "You: "
+		}
+	} else {
+		prompt = "You: "
+	}
+
+	fmt.Print(prompt)
 
 	if !i.scanner.Scan() {
 		if err := i.scanner.Err(); err != nil {
@@ -36,6 +57,14 @@ func (i *Interface) ReadInput() (string, error) {
 	}
 
 	return strings.TrimSpace(i.scanner.Text()), nil
+}
+
+// pluralize returns "s" if count != 1, otherwise empty string
+func pluralize(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // ShowThinking displays a thinking indicator
@@ -105,4 +134,73 @@ func (i *Interface) PrintHelp(helpText string) {
 // PrintWelcome prints welcome banner
 func (i *Interface) PrintWelcome(banner string) {
 	fmt.Println(banner)
+}
+
+// CheckAndNotifyCompletedTasks checks for newly completed tasks and notifies the user
+func (i *Interface) CheckAndNotifyCompletedTasks(lastCheckedTasks map[string]bool) map[string]bool {
+	coordinator := agent.GetGlobalCoordinator()
+	if coordinator == nil {
+		return lastCheckedTasks
+	}
+
+	// Get all tasks
+	allTasks := coordinator.ListTasks()
+	newCompleted := make(map[string]bool)
+
+	// Check each task
+	for _, task := range allTasks {
+		if task.Status == "completed" || task.Status == "failed" {
+			// This task is done
+			newCompleted[task.ID] = true
+
+			// If we haven't notified about this task yet, show notification
+			if lastCheckedTasks == nil || !lastCheckedTasks[task.ID] {
+				i.notifyTaskCompletion(task)
+			}
+		}
+	}
+
+	return newCompleted
+}
+
+// notifyTaskCompletion shows a notification that a background task completed
+func (i *Interface) notifyTaskCompletion(task *agent.Task) {
+	coordinator := agent.GetGlobalCoordinator()
+	if coordinator == nil {
+		return
+	}
+
+	// Get the task result
+	_, result, _ := coordinator.GetTaskStatus(task.ID)
+
+	if result != nil && result.Success {
+		// Success
+		fmt.Printf("\n🎉 Background task completed: %s\n", shortenTaskID(task.ID))
+		fmt.Printf("   Type: %s | Agent: %s\n", task.Type, task.AgentName)
+		if len(result.Output) > 0 {
+			// Show first line of output
+			firstLine := strings.Split(result.Output, "\n")[0]
+			if len(firstLine) > 80 {
+				firstLine = firstLine[:80] + "..."
+			}
+			fmt.Printf("   Result: %s\n", firstLine)
+		}
+		fmt.Printf("   Use 'check_task_progress %s' for full details\n\n", shortenTaskID(task.ID))
+	} else if result != nil && !result.Success {
+		// Failed
+		fmt.Printf("\n❌ Background task failed: %s\n", shortenTaskID(task.ID))
+		fmt.Printf("   Type: %s | Agent: %s\n", task.Type, task.AgentName)
+		if result.Error != "" {
+			fmt.Printf("   Error: %s\n", result.Error)
+		}
+		fmt.Printf("   Use 'check_task_progress %s' for full details\n\n", shortenTaskID(task.ID))
+	}
+}
+
+// shortenTaskID returns the first 8 characters of a task ID for display
+func shortenTaskID(taskID string) string {
+	if len(taskID) > 8 {
+		return taskID[:8]
+	}
+	return taskID
 }

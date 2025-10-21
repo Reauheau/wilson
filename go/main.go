@@ -20,15 +20,16 @@ import (
 	"wilson/ollama"
 	"wilson/session"
 
-	_ "wilson/capabilities/code_intelligence/analysis" // Code intelligence: Analysis tools (Phase 3)
-	_ "wilson/capabilities/code_intelligence/ast"      // Code intelligence: AST tools (Phase 1)
-	_ "wilson/capabilities/code_intelligence/build"    // Code intelligence: Build tools (Phase 2)
-	_ "wilson/capabilities/code_intelligence/quality"  // Code intelligence: Quality tools (Phase 4)
-	_ "wilson/capabilities/context"                    // Context management tools
-	_ "wilson/capabilities/filesystem"                 // Filesystem tools
-	_ "wilson/capabilities/orchestration"              // Multi-agent orchestration tools
-	_ "wilson/capabilities/system"                     // System tools
-	"wilson/capabilities/web"                          // Web tools (need SetLLMManager)
+	code_intelligence "wilson/capabilities/code_intelligence" // Code generation (needs SetLLMManager)
+	_ "wilson/capabilities/code_intelligence/analysis"        // Code intelligence: Analysis tools (Phase 3)
+	_ "wilson/capabilities/code_intelligence/ast"             // Code intelligence: AST tools (Phase 1)
+	_ "wilson/capabilities/code_intelligence/build"           // Code intelligence: Build tools (Phase 2)
+	_ "wilson/capabilities/code_intelligence/quality"         // Code intelligence: Quality tools (Phase 4)
+	_ "wilson/capabilities/context"                           // Context management tools
+	_ "wilson/capabilities/filesystem"                        // Filesystem tools
+	_ "wilson/capabilities/orchestration"                     // Multi-agent orchestration tools
+	_ "wilson/capabilities/system"                            // System tools
+	"wilson/capabilities/web"                                 // Web tools (need SetLLMManager)
 )
 
 func printHelp(tools []Tool) {
@@ -129,6 +130,9 @@ func main() {
 	// Create chat handler with the agent
 	chatHandler := agent.NewChatHandler(chatAgent, history, executor)
 
+	// Track completed tasks for notifications
+	completedTasks := make(map[string]bool)
+
 	// Chat loop
 	for {
 		// Check if context is cancelled
@@ -138,6 +142,9 @@ func main() {
 			return
 		default:
 		}
+
+		// Check for completed background tasks and notify
+		completedTasks = chatUI.CheckAndNotifyCompletedTasks(completedTasks)
 
 		// Read user input
 		userInput, err := chatUI.ReadInput()
@@ -239,8 +246,9 @@ func initializeLLMManager(ctx context.Context, cfg *config.Config) *llm.Manager 
 		}
 	}
 
-	// Set the LLM manager for web tools
+	// Set the LLM manager for tools that need it
 	web.SetLLMManager(manager)
+	code_intelligence.SetLLMManager(manager)
 
 	return manager
 }

@@ -126,23 +126,14 @@ func (a *BaseAgent) GetContext() (*contextpkg.Context, error) {
 	return a.contextMgr.GetContext(contextKey)
 }
 
-// CallLLM calls the agent's LLM with a prompt
+// CallLLM calls the agent's LLM with a prompt using validation and retry
+// This ensures ALL agents get reliable JSON responses with automatic correction
 func (a *BaseAgent) CallLLM(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if a.llmManager == nil {
 		return "", fmt.Errorf("LLM manager not available")
 	}
 
-	req := llm.Request{
-		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-	}
-
-	resp, err := a.llmManager.Generate(ctx, a.purpose, req)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Content, nil
+	// Use validation with retry for reliable JSON generation
+	// taskID is empty here since we don't have access to it in BaseAgent
+	return CallLLMWithValidation(ctx, a.llmManager, a.purpose, systemPrompt, userPrompt, 5, "")
 }

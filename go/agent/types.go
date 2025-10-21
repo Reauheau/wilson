@@ -27,18 +27,20 @@ type Agent interface {
 
 // Task represents a task to be executed by an agent
 type Task struct {
-	ID           string                 `json:"id"`
-	ContextKey   string                 `json:"context_key"`
-	Type         string                 `json:"type"` // "research", "analysis", "code", "general"
-	Description  string                 `json:"description"`
-	Input        map[string]interface{} `json:"input"`
-	RequestedBy  string                 `json:"requested_by"` // Which agent delegated this
-	CreatedAt    time.Time              `json:"created_at"`
-	Status       TaskStatus             `json:"status"`
-	Priority     int                    `json:"priority"` // 1-5, 5 is highest
-	ModelUsed    string                 `json:"model_used"`    // Phase 3: Track which model is executing this task
-	AgentName    string                 `json:"agent_name"`    // Phase 3: Track which agent is executing
-	UsedFallback bool                   `json:"used_fallback"` // Phase 5: Track if fallback model was used
+	ID            string                 `json:"id"`
+	ContextKey    string                 `json:"context_key"`
+	Type          string                 `json:"type"` // "research", "analysis", "code", "general"
+	Description   string                 `json:"description"`
+	Input         map[string]interface{} `json:"input"`
+	RequestedBy   string                 `json:"requested_by"` // Which agent delegated this
+	CreatedAt     time.Time              `json:"created_at"`
+	Status        TaskStatus             `json:"status"`
+	Priority      int                    `json:"priority"`       // 1-5, 5 is highest
+	ModelUsed     string                 `json:"model_used"`     // Phase 3: Track which model is executing this task
+	AgentName     string                 `json:"agent_name"`     // Phase 3: Track which agent is executing
+	UsedFallback  bool                   `json:"used_fallback"`  // Phase 5: Track if fallback model was used
+	CurrentAction string                 `json:"current_action"` // Real-time progress: what the agent is doing now
+	ToolsExecuted []string               `json:"tools_executed"` // List of tools executed so far
 }
 
 // TaskStatus represents the status of a task
@@ -65,7 +67,7 @@ type Result struct {
 	TaskID      string                 `json:"task_id"`
 	Success     bool                   `json:"success"`
 	Output      string                 `json:"output"`
-	Artifacts   []string               `json:"artifacts"`   // IDs of created artifacts
+	Artifacts   []string               `json:"artifacts"` // IDs of created artifacts
 	Error       string                 `json:"error"`
 	Metadata    map[string]interface{} `json:"metadata"`
 	CompletedAt time.Time              `json:"completed_at"`
@@ -74,7 +76,7 @@ type Result struct {
 
 // DelegationRequest represents a request to delegate a task
 type DelegationRequest struct {
-	ToAgent     string                 `json:"to_agent"`     // Target agent name
+	ToAgent     string                 `json:"to_agent"` // Target agent name
 	ContextKey  string                 `json:"context_key"`
 	Type        string                 `json:"type"`
 	Description string                 `json:"description"`

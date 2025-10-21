@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	contextpkg "wilson/context"
+	"wilson/core/registry"
 	"wilson/llm"
 )
 
@@ -16,7 +17,10 @@ type CodeAgent struct {
 
 // NewCodeAgent creates a new code agent
 func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *CodeAgent {
-	base := NewBaseAgent("Code", llm.PurposeCode, llmManager, contextMgr)
+	// CRITICAL: Use chat model instead of code model
+	// qwen2.5:7b is much better at structured output (tool calls) than qwen2.5-coder:14b
+	// The code model tends to hallucinate descriptions instead of generating JSON
+	base := NewBaseAgent("Code", llm.PurposeChat, llmManager, contextMgr)
 
 	// Code-specific tools
 	base.SetAllowedTools([]string{
@@ -28,6 +32,8 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		"write_file",     // Create new files
 		"modify_file",    // Replace existing content
 		"append_to_file", // Add new functions/content to existing files
+		// Code generation (CRITICAL - use this instead of writing code yourself!)
+		"generate_code", // Calls specialist code model to generate actual code
 		// Code intelligence (Phase 1)
 		"parse_file",        // Understand code structure via AST
 		"find_symbol",       // Find definitions and usages
@@ -74,7 +80,10 @@ func (a *CodeAgent) CanHandle(task *Task) bool {
 	return task.Type == TaskTypeCode
 }
 
-// Execute executes a code-related task
+// Execute executes a code-related task using the 3-layer architecture
+// Layer 1: INTENT (LLM Planning)
+// Layer 2: EXECUTION (Actual Tool Calls)
+// Layer 3: VERIFICATION (Result Validation)
 func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{
 		TaskID: task.ID,
@@ -87,167 +96,282 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		currentCtx = nil
 	}
 
-	// Build code-specific prompts
+	// === LAYER 1: INTENT - Get LLM plan ===
 	systemPrompt := a.buildSystemPrompt()
 	userPrompt := a.buildUserPrompt(task, currentCtx)
 
-	// Call LLM with code-specific model
-	response, err := a.CallLLM(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		result.Success = false
-		result.Error = fmt.Sprintf("LLM error: %v", err)
-		return result, err
+	// Update progress
+	coordinator := GetGlobalCoordinator()
+	if coordinator != nil {
+		coordinator.UpdateTaskProgress(task.ID, "Waiting for LLM response...", nil)
 	}
 
-	// CRITICAL: Check if response is a tool call or just descriptive text
-	// The Code Agent MUST use tools to create files, not just describe them
-	if !strings.Contains(response, `"tool":`) && !strings.Contains(response, "write_file") {
-		// Response is descriptive text, not tool calls - this is a hallucination
-		result.Success = false
-		result.Error = "Code Agent hallucinated: provided description instead of using tools to create files"
-		result.Output = fmt.Sprintf("ERROR: Model did not use tools to create files.\n\nModel response:\n%s\n\nExpected: JSON tool calls like {\"tool\": \"write_file\", \"arguments\": {...}}", response)
-		return result, fmt.Errorf("code agent hallucination: no tool calls detected")
+	var execResult *ExecutionResult
+	maxWorkflowRetries := 2 // Allow one retry if workflow validation fails
+
+	for attempt := 1; attempt <= maxWorkflowRetries; attempt++ {
+		// Use validated LLM call with automatic retry
+		response, err := CallLLMWithValidation(ctx, a.llmManager, a.purpose, systemPrompt, userPrompt, 5, task.ID)
+		if err != nil {
+			result.Success = false
+			result.Error = fmt.Sprintf("LLM validation error: %v", err)
+			return result, err
+		}
+
+		// === LAYER 2: EXECUTION - Actually run the tools ===
+		executor := NewAgentToolExecutor(
+			registry.NewExecutor(),
+			a.llmManager,
+		)
+
+		execResult, err = executor.ExecuteAgentResponse(
+			ctx,
+			response,
+			systemPrompt,
+			userPrompt,
+			a.purpose,
+			task.ID, // Pass task ID for progress updates
+		)
+
+		if err != nil {
+			// Execution failed or hallucination detected
+			result.Success = false
+			result.Error = fmt.Sprintf("Execution failed: %v", err)
+			result.Output = execResult.Output
+
+			if execResult.HallucinationDetected {
+				result.Error = "Code Agent hallucinated: provided description instead of using tools"
+			}
+
+			return result, err
+		}
+
+		// === LAYER 2.5: WORKFLOW VALIDATION - Check mandatory sequences ===
+		if err := validateCodeWorkflow(execResult.ToolsExecuted); err != nil {
+			if attempt < maxWorkflowRetries {
+				// Retry with feedback
+				fmt.Printf("\n❌ [Workflow Validation] Attempt %d/%d failed: %v\n", attempt, maxWorkflowRetries, err)
+				fmt.Printf("   Tools executed: %v\n", execResult.ToolsExecuted)
+				fmt.Printf("   Retrying with corrective feedback...\n\n")
+
+				// Extract the path from task description
+				targetPath := "/Users/roderick.vannievelt/IdeaProjects/wilsontestdir"
+				if strings.Contains(task.Description, "wilsontestdir") {
+					// Keep the path
+				} else if strings.Contains(strings.ToLower(task.Description), "test") {
+					// Likely a test file
+					targetPath = targetPath + "/main_test.go"
+				} else {
+					targetPath = targetPath + "/main.go"
+				}
+
+				// Simplified retry - just tell it what's missing
+				userPrompt = fmt.Sprintf(`Task incomplete. You executed: %v
+
+Missing step: %s
+
+Call the missing tool now.`,
+					execResult.ToolsExecuted, err.Error())
+
+				if coordinator != nil {
+					coordinator.UpdateTaskProgress(task.ID, "Retrying with workflow feedback...", nil)
+				}
+				continue // Retry
+			}
+
+			// Last attempt failed
+			result.Success = false
+			result.Error = fmt.Sprintf("Workflow validation failed after %d attempts: %v", maxWorkflowRetries, err)
+			result.Output = execResult.Output
+			result.Metadata = map[string]interface{}{
+				"tools_executed": execResult.ToolsExecuted,
+				"workflow_error": err.Error(),
+			}
+			return result, fmt.Errorf("workflow validation failed: %w", err)
+		}
+
+		// Workflow validation passed!
+		fmt.Printf("✓ [Workflow Validation] Passed - correct tool sequence followed\n")
+		break
 	}
 
-	// Store response as code artifact
+	// === LAYER 3: VERIFICATION - Check actual results ===
+	verifier := GetVerifier(string(TaskTypeCode))
+	if verifier != nil {
+		if err := verifier.Verify(ctx, execResult, task); err != nil {
+			result.Success = false
+			result.Error = fmt.Sprintf("Verification failed: %v", err)
+			result.Output = execResult.Output
+			result.Metadata = map[string]interface{}{
+				"tools_executed":     execResult.ToolsExecuted,
+				"verification_error": err.Error(),
+			}
+			return result, err
+		}
+	}
+
+	// === SUCCESS - All three layers passed ===
+
+	// Store execution summary as artifact
+	artifactContent := fmt.Sprintf("Code Generation Task Completed\n\n")
+	artifactContent += fmt.Sprintf("Tools Executed: %s\n\n", strings.Join(execResult.ToolsExecuted, ", "))
+	artifactContent += fmt.Sprintf("Results:\n%s", execResult.Output)
+
 	artifact, err := a.StoreArtifact(
 		"code",
-		response,
+		artifactContent,
 		"code_agent",
 	)
 	if err == nil {
 		result.Artifacts = append(result.Artifacts, fmt.Sprintf("%d", artifact.ID))
 	}
 
-	// Leave note for other agents (especially Test Agent)
-	noteText := fmt.Sprintf("Completed code task: %s. Code stored as artifact #%d. Ready for testing.",
-		task.Description, artifact.ID)
-	_ = a.LeaveNote("Test", noteText) // Notify test agent
+	// Leave note for other agents
+	noteText := fmt.Sprintf("✓ Completed code task: %s. Created %d file(s) using tools: %s. Ready for testing.",
+		task.Description, len(execResult.ToolsExecuted), strings.Join(execResult.ToolsExecuted, ", "))
+	_ = a.LeaveNote("Test", noteText)
 
 	result.Success = true
-	result.Output = response
+	result.Output = execResult.Output
 	result.Metadata = map[string]interface{}{
-		"model":       "code",
-		"agent_type":  "code",
-		"artifact_id": artifact.ID,
-		"language":    task.Input["language"], // If specified
+		"model":          "code",
+		"agent_type":     "code",
+		"artifact_id":    artifact.ID,
+		"tools_executed": execResult.ToolsExecuted,
+		"verified":       true,
 	}
 
 	return result, nil
 }
 
+// truncate returns first n characters of string
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
 func (a *CodeAgent) buildSystemPrompt() string {
-	return `You are Wilson's Code Agent - a specialist in writing production-quality code.
+	// Start with shared core principles
+	prompt := BuildSharedPrompt("Code Agent")
 
-=== CRITICAL: ANTI-HALLUCINATION RULES ===
-YOU MUST ACTUALLY CREATE/MODIFY FILES - NEVER JUST DESCRIBE THEM!
+	// Add Code Agent specific instructions
+	prompt += `
+You are the CODE ORCHESTRATOR. You coordinate code development using tools.
 
-❌ NEVER DO THIS (HALLUCINATION):
-"I'll create a file called main.go with..."
-"Here's what I did: 1. Created main.go..."
-"Run 'go mod init' to initialize..."
-"The project structure will look like..."
-"Here's the code: [shows code block]"
+=== YOUR ROLE ===
 
-✅ ALWAYS DO THIS (ACTUAL EXECUTION):
-{"tool": "write_file", "arguments": {"path": "main.go", "content": "package main..."}}
-{"tool": "modify_file", "arguments": {"path": "service.go", "old_content": "...", "new_content": "..."}}
-{"tool": "compile", "arguments": {"target": "."}}
-{"tool": "run_tests", "arguments": {"package": "."}}
+You do NOT write code yourself. You ORCHESTRATE code generation.
+You delegate to the code model via generate_code tool, then save and validate.
 
-RULE: If you mention a file, you MUST create it with write_file in the SAME response!
-RULE: Every step must be a tool call - no narrative descriptions!
+=== WORKFLOW (MANDATORY SEQUENCE) ===
 
-=== WORKFLOW ===
+1. **generate_code** - Get code from specialist model
+   → Returns actual working code
 
-**1. Understand Context**
-- parse_file: Read existing code structure
-- find_symbol: Locate functions/types
-- find_patterns: Learn existing code style
-- find_related: Find related files
+2. **[AUTO-INJECTED]** - System saves code automatically
+   → write_file happens automatically after generate_code
 
-**2. Write Code**
-- write_file: Create new files
-- modify_file: Edit existing files
-- append_to_file: Add new functions
+3. **compile** - REQUIRED - Validate code works
+   → ALWAYS call compile after code is saved
+   → Check for errors, fix if needed
 
-**3. Validate**
-- compile: Check if code compiles
-- run_tests: Run tests
-- Fix errors if needed, repeat
+4. **STOP** - Task complete once compile succeeds
 
-**4. Quality Check**
-- format_code: Format code
-- lint_code: Check style
-- security_scan: Check security
+CRITICAL: After generate_code completes, you MUST call compile. Don't stop without compiling.
 
-EXAMPLE - "Create a hello world program":
-WRONG: "I'll create main.go with package main and a print statement"
-RIGHT: {"tool": "write_file", "arguments": {"path": "main.go", "content": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello World\")\n}"}}
+=== TOOL USAGE RULES ===
+
+**generate_code** - For ALL code creation
+{"tool": "generate_code", "arguments": {
+  "language": "go",
+  "description": "What the code should do",
+  "requirements": ["List", "of", "requirements"]
+}}
+
+**compile** - After code is saved
+{"tool": "compile", "arguments": {"target": "/path/to/project"}}
+
+**run_tests** - If tests exist
+{"tool": "run_tests", "arguments": {"package": "/path"}}
+
+=== CODE UNDERSTANDING TOOLS ===
+
+Before implementing, understand context:
+- **parse_file**: Read code structure (AST)
+- **find_symbol**: Locate definitions/usages
+- **find_patterns**: Learn existing style
+- **find_related**: Find dependencies
+
+=== EXAMPLE WORKFLOW ===
+
+Task: "Create Go program that opens Spotify"
+
+Step 1: Generate
+{"tool": "generate_code", "arguments": {
+  "language": "go",
+  "description": "CLI that opens applications using exec.Command",
+  "requirements": ["macOS support", "Error handling"]
+}}
+
+Step 2: [System auto-saves to main.go]
+
+Step 3: Compile
+{"tool": "compile", "arguments": {"target": "/path"}}
+
+Step 4: Done (if compile succeeds)
+
+=== ERROR RECOVERY ===
+
+If compile fails:
+1. Read error message carefully
+2. Call generate_code with error feedback
+3. Let system save new code automatically
+4. Compile again
+5. Repeat until success
+
+=== SECURITY & QUALITY ===
+
+**Security Checks:**
+- Never log credentials
+- Validate user inputs
+- Check for SQL injection risks
+- Scan for vulnerabilities
+
+**Quality Standards:**
+- Match existing code style
+- Include error handling
+- Add clear comments
+- Keep functions focused
+- Test coverage 80%+
 
 === AVAILABLE TOOLS ===
 
-**Code Understanding:**
-- parse_file: Get AST structure (functions, types, imports, line numbers)
-- find_symbol: Locate where functions/types are defined and used
-- find_patterns: Learn existing code patterns (error handling, structs, naming)
-- find_related: Find related files and dependencies
-- analyze_structure: Understand package organization
-- analyze_imports: Check imports and dependencies
-- dependency_graph: Map import relationships
+**Code Generation:**
+- generate_code: Get code from specialist model
 
 **File Operations:**
-- read_file: Read file contents
-- write_file: Create new files
-- modify_file: Edit existing files (need exact old content)
-- append_to_file: Add new functions to files
-- search_files: Find files by pattern
-- list_files: List directory contents
+- read_file, list_files, search_files
+- modify_file, append_to_file (for existing files)
 
-**Code Validation:**
-- compile: Run go build, get structured errors
-- run_tests: Execute tests, get results
-- format_code: Auto-format with gofmt/goimports
-- lint_code: Check style with go vet
-- security_scan: Find vulnerabilities
-- complexity_check: Verify complexity
-- coverage_check: Check test coverage
+**Validation:**
+- compile, run_tests
+- format_code, lint_code
+- security_scan, complexity_check
 
-**Quality & Review:**
-- code_review: Comprehensive quality check
-- request_review: Request Review Agent feedback
-- get_review_status: Check review status
+**Code Intelligence:**
+- parse_file, find_symbol, find_patterns
+- analyze_structure, analyze_imports
+- dependency_graph, find_related
 
-**Task Coordination:**
-- poll_tasks: Find available tasks
-- claim_task: Claim a task
-- update_task_progress: Update status
-- unblock_tasks: Unblock dependencies
+**Context Management:**
+- search_artifacts, retrieve_context
+- store_artifact, leave_note
 
-=== BEST PRACTICES ===
+Remember: You orchestrate. The code model generates. The system saves.`
 
-**Before Implementing:**
-1. find_patterns - Learn the codebase style
-2. find_related - Understand dependencies
-3. parse_file - Read existing code structure
-
-**When Writing Code:**
-1. Use write_file for new files
-2. Use modify_file for changes
-3. compile after writing
-4. run_tests after compiling
-5. Fix errors and repeat if needed
-
-**Quality Standards:**
-- Match existing code patterns
-- Include error handling
-- Add clear comments
-- Keep complexity low (≤15)
-- Zero security vulnerabilities
-- Test coverage 80%+
-
-That's it! Keep responses concise and use tools for everything.
-`
+	return prompt
 }
 
 func (a *CodeAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) string {
@@ -300,4 +424,43 @@ func (a *CodeAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) 
 	prompt.WriteString("5. Suggested test cases for validation\n")
 
 	return prompt.String()
+}
+
+// validateCodeWorkflow checks if mandatory tool sequences were followed
+// Required sequence: generate_code → write_file → compile
+func validateCodeWorkflow(toolsExecuted []string) error {
+	generateCodeIndex := -1
+	writeFileIndex := -1
+	compileIndex := -1
+
+	// Find indices of key operations
+	for i, tool := range toolsExecuted {
+		if tool == "generate_code" {
+			generateCodeIndex = i
+		}
+		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" {
+			// Only count file operations AFTER generate_code
+			if generateCodeIndex >= 0 && i > generateCodeIndex && writeFileIndex == -1 {
+				writeFileIndex = i
+			}
+		}
+		if tool == "compile" {
+			// Only count compile AFTER write_file
+			if writeFileIndex >= 0 && i > writeFileIndex && compileIndex == -1 {
+				compileIndex = i
+			}
+		}
+	}
+
+	// If generate_code was called, verify the full sequence
+	if generateCodeIndex >= 0 {
+		if writeFileIndex == -1 {
+			return fmt.Errorf("generate_code was called but code was never saved (missing write_file AFTER generate_code)")
+		}
+		if compileIndex == -1 {
+			return fmt.Errorf("code was generated and saved but never compiled (missing compile AFTER write_file)")
+		}
+	}
+
+	return nil
 }

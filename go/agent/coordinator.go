@@ -17,8 +17,8 @@ type Coordinator struct {
 	tasks         map[string]*Task
 	results       map[string]*Result
 	mu            sync.RWMutex
-	maxDepth      int // Maximum delegation depth to prevent infinite loops
-	maxConcurrent int // Maximum concurrent workers (default: 2)
+	maxDepth      int           // Maximum delegation depth to prevent infinite loops
+	maxConcurrent int           // Maximum concurrent workers (default: 2)
 	semaphore     chan struct{} // Semaphore for concurrency control
 }
 
@@ -154,7 +154,7 @@ func (c *Coordinator) DelegateTaskAsync(ctx context.Context, req DelegationReque
 			// Successfully got model (either preferred or fallback)
 			modelName = client.GetModel()
 			usedFallback = fallback // Phase 5: Track if we used fallback
-			defer release()          // ALWAYS release model when done (kill-after-task)
+			defer release()         // ALWAYS release model when done (kill-after-task)
 
 			// Update task with model and agent info (Phase 3 + Phase 5)
 			c.mu.Lock()
@@ -288,4 +288,17 @@ func GetGlobalCoordinator() *Coordinator {
 	globalCoordinatorMu.RLock()
 	defer globalCoordinatorMu.RUnlock()
 	return globalCoordinator
+}
+
+// UpdateTaskProgress updates the current action and tools executed for a task
+func (c *Coordinator) UpdateTaskProgress(taskID, currentAction string, toolsExecuted []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if task, ok := c.tasks[taskID]; ok {
+		task.CurrentAction = currentAction
+		if toolsExecuted != nil {
+			task.ToolsExecuted = toolsExecuted
+		}
+	}
 }

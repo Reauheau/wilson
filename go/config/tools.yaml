@@ -38,7 +38,7 @@ llms:
   chat:
     provider: "ollama"
     model: "qwen2.5:7b"  # Chat agent - always loaded, handles tool calling
-    temperature: 0.7
+    temperature: 0.1  # Low temperature for reliable tool calling
     base_url: "http://localhost:11434"
 
   analysis:

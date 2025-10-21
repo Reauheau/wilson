@@ -16,8 +16,8 @@ import (
 
 // Executor handles tool execution with confirmation logic
 type Executor struct {
-	AutoConfirm   bool                          // If true, skip confirmation (useful for testing)
-	UserQuery     string                        // Track the original user query for audit logging
+	AutoConfirm   bool                                // If true, skip confirmation (useful for testing)
+	UserQuery     string                              // Track the original user query for audit logging
 	StatusHandler func(toolName string, phase string) // Optional callback for status updates
 }
 
@@ -256,9 +256,13 @@ func min(a, b, c int) int {
 func IsToolCall(response string) (bool, *ToolCall) {
 	response = strings.TrimSpace(response)
 
+	// Try to repair common JSON issues (unescaped quotes in content)
+	repairedResponse := repairToolCallJSON(response)
+
 	// First, try to parse entire response as JSON (if model was perfect)
 	var call ToolCall
-	if err := json.Unmarshal([]byte(response), &call); err == nil {
+	err := json.Unmarshal([]byte(repairedResponse), &call)
+	if err == nil {
 		if call.Tool != "" && call.Arguments != nil {
 			return true, &call
 		}
@@ -301,4 +305,97 @@ func IsToolCall(response string) (bool, *ToolCall) {
 	}
 
 	return false, nil
+}
+
+// repairToolCallJSON attempts to fix common JSON issues in tool call responses
+// Specifically handles unescaped quotes in the "content" field
+func repairToolCallJSON(response string) string {
+	// Look for the "content" field
+	contentIdx := strings.Index(response, `"content":`)
+	if contentIdx == -1 {
+		return response // No content field
+	}
+
+	// Find the start of the content value (after the colon and optional whitespace)
+	valueStart := contentIdx + len(`"content":`)
+	for valueStart < len(response) && (response[valueStart] == ' ' || response[valueStart] == '\t') {
+		valueStart++
+	}
+
+	// Make sure it starts with a quote
+	if valueStart >= len(response) || response[valueStart] != '"' {
+		return response // Not a string value
+	}
+
+	// Find the end of the content string by looking for the closing quote
+	// We need to be careful - skip already escaped quotes
+	valueStart++ // Skip opening quote
+	var result strings.Builder
+	result.WriteString(response[:valueStart])
+
+	inEscape := false
+	foundEnd := false
+	i := valueStart
+
+	for i < len(response) {
+		ch := response[i]
+
+		if inEscape {
+			// Previous char was backslash, keep this char as-is
+			result.WriteByte(ch)
+			inEscape = false
+			i++
+			continue
+		}
+
+		if ch == '\\' {
+			// Start of escape sequence
+			result.WriteByte(ch)
+			inEscape = true
+			i++
+			continue
+		}
+
+		if ch == '"' {
+			// Unescaped quote - need to check if it's the closing quote or an embedded quote
+			// Look ahead to see what's after
+			nextIdx := i + 1
+			// Skip whitespace
+			for nextIdx < len(response) && (response[nextIdx] == ' ' || response[nextIdx] == '\t' || response[nextIdx] == '\n') {
+				nextIdx++
+			}
+
+			// If next char is , or }, this is the closing quote
+			if nextIdx < len(response) && (response[nextIdx] == ',' || response[nextIdx] == '}') {
+				// This is the closing quote
+				result.WriteByte('"')
+				result.WriteString(response[i+1:])
+				foundEnd = true
+				break
+			} else {
+				// This is an embedded quote that should be escaped
+				result.WriteString(`\"`)
+				i++
+				continue
+			}
+		}
+
+		// Regular character
+		result.WriteByte(ch)
+		i++
+	}
+
+	if !foundEnd {
+		return response // Couldn't find proper end
+	}
+
+	return result.String()
+}
+
+// truncateDebug truncates string for debug output
+func truncateDebug(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
