@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -260,10 +260,14 @@ func initializeMCPClient(ctx context.Context, cfg *config.Config) *mcp.Client {
 	// List available tools
 	tools := client.ListTools()
 	if len(tools) > 0 {
-		fmt.Printf("[MCP] %d tool(s) available from %d server(s)\n", len(tools), len(client.GetServerNames()))
-
 		// Register MCP tools with Wilson's tool registry
 		registerMCPTools(client)
+
+		// Show clean summary
+		serverNames := client.GetServerNames()
+		if len(serverNames) > 0 {
+			fmt.Printf("[MCP] Active: %s (%d tools)\n", strings.Join(serverNames, ", "), len(tools))
+		}
 	}
 
 	return client
@@ -277,10 +281,8 @@ func registerMCPTools(client *mcp.Client) {
 		// Create a bridge for each MCP tool
 		bridge := mcp.NewMCPToolBridge(client, mcpTool.ServerName, mcpTool)
 
-		// Register with Wilson's tool registry
+		// Register with Wilson's tool registry (silent)
 		registry.Register(bridge)
-
-		log.Printf("[MCP] Registered Wilson tool: mcp_%s_%s", mcpTool.ServerName, mcpTool.Name)
 	}
 }
 

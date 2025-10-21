@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -29,29 +30,35 @@ func NewClient(config MCPConfig) *Client {
 // Initialize connects to all configured MCP servers
 func (c *Client) Initialize(ctx context.Context) error {
 	if !c.config.Enabled {
-		log.Println("[MCP] MCP is disabled in config")
 		return nil
 	}
 
-	log.Printf("[MCP] Initializing MCP client with %d server(s)", len(c.config.Servers))
+	// Count enabled servers
+	enabledCount := 0
+	for _, serverCfg := range c.config.Servers {
+		if serverCfg.Enabled {
+			enabledCount++
+		}
+	}
+
+	if enabledCount == 0 {
+		return nil
+	}
 
 	for name, serverCfg := range c.config.Servers {
 		if !serverCfg.Enabled {
-			log.Printf("[MCP] Server '%s' is disabled, skipping", name)
-			continue
+			continue // Silent skip
 		}
 
-		if err := c.connectServer(ctx, name, serverCfg); err != nil {
-			log.Printf("[MCP] Failed to connect to server '%s': %v", name, err)
-			// Continue with other servers instead of failing
+		// Create timeout context for each server connection
+		connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := c.connectServer(connectCtx, name, serverCfg); err != nil {
+			log.Printf("[MCP] Failed to connect to '%s': %v", name, err)
 			continue
 		}
-
-		log.Printf("[MCP] Successfully connected to server '%s'", name)
 	}
-
-	log.Printf("[MCP] Initialization complete. %d tool(s) available from %d server(s)",
-		len(c.tools), len(c.servers))
 
 	// Register MCP tools with Wilson's registry
 	if err := c.RegisterTools(); err != nil {
@@ -109,7 +116,7 @@ func (c *Client) connectServer(ctx context.Context, name string, config ServerCo
 	// Store server client
 	c.servers[name] = mcpClient
 
-	// Register tools
+	// Register tools (silent)
 	for _, tool := range result.Tools {
 		c.tools = append(c.tools, MCPTool{
 			ServerName:  name,
@@ -117,7 +124,6 @@ func (c *Client) connectServer(ctx context.Context, name string, config ServerCo
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
 		})
-		log.Printf("[MCP] Registered tool '%s' from server '%s'", tool.Name, name)
 	}
 
 	return nil
