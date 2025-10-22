@@ -210,6 +210,12 @@ func (m *ManagerAgent) CompleteTask(ctx context.Context, taskID int, result stri
 
 	m.logCommunication(ctx, "", "notification", fmt.Sprintf("Task %s completed successfully", task.TaskKey), task.TaskKey)
 
+	// ✅ PHASE 0: Explicit unblock call (redundant but defensive)
+	// queue.CompleteTask() already calls this, but being explicit ensures it happens
+	if err := m.queue.UnblockDependentTasks(task.TaskKey); err != nil {
+		fmt.Printf("[ManagerAgent] Warning: Unblock failed for %s: %v\n", task.TaskKey, err)
+	}
+
 	// Check if parent task can be completed
 	if task.ParentTaskID != nil {
 		m.checkParentCompletion(ctx, *task.ParentTaskID)
@@ -750,10 +756,8 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 			return fmt.Errorf("failed to complete task %s: %w", task.TaskKey, err)
 		}
 
-		// Unblock dependent tasks
-		if err := m.queue.UnblockDependentTasks(task.TaskKey); err != nil {
-			return fmt.Errorf("failed to unblock dependents: %w", err)
-		}
+		// Note: CompleteTask() already calls UnblockDependentTasks()
+		// No need to call again here (Phase 0 ensures it's automatic)
 	}
 
 	return nil

@@ -294,12 +294,18 @@ func (q *TaskQueue) CompleteTask(taskID int, result string, artifactIDs []int) e
 		return err
 	}
 
-	// Check if this task blocks other tasks and unblock them
-	if err := q.UnblockDependentTasks(task.TaskKey); err != nil {
-		return fmt.Errorf("failed to unblock dependent tasks: %w", err)
+	// Update task first to persist completion
+	if err := q.UpdateTask(task); err != nil {
+		return err
 	}
 
-	return q.UpdateTask(task)
+	// ✅ PHASE 0: Always unblock dependents when task completes
+	// Non-critical: Log but don't fail if unblocking has issues
+	if err := q.UnblockDependentTasks(task.TaskKey); err != nil {
+		fmt.Printf("Warning: Failed to unblock dependents of %s: %v\n", task.TaskKey, err)
+	}
+
+	return nil
 }
 
 // BlockTask marks a task as blocked

@@ -41,6 +41,19 @@ func (m *mockAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	}, nil
 }
 
+func (m *mockAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	// Convert TaskContext to Task for mock execution
+	task := &Task{
+		ID:          taskCtx.TaskID,
+		Type:        string(taskCtx.Type),
+		Description: taskCtx.Description,
+		Input:       taskCtx.Input,
+		Priority:    taskCtx.Priority,
+		Status:      TaskPending,
+	}
+	return m.Execute(ctx, task)
+}
+
 func (m *mockAgent) AllowedTools() []string {
 	return m.allowedTools
 }
