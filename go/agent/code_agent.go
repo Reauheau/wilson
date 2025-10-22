@@ -118,7 +118,8 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	}
 
 	var execResult *ExecutionResult
-	maxWorkflowRetries := 2 // Allow one retry if workflow validation fails
+	// No retries needed - atomic task principle, workflow validation in agent_executor
+	maxWorkflowRetries := 1
 
 	for attempt := 1; attempt <= maxWorkflowRetries; attempt++ {
 		// Use validated LLM call with automatic retry
@@ -213,14 +214,6 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	}
 
 	return result, nil
-}
-
-// truncate returns first n characters of string
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }
 
 func (a *CodeAgent) buildSystemPrompt() string {
@@ -399,43 +392,4 @@ func (a *CodeAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) 
 	prompt.WriteString("5. Suggested test cases for validation\n")
 
 	return prompt.String()
-}
-
-// validateCodeWorkflow checks if mandatory tool sequences were followed
-// Required sequence: generate_code → write_file → compile
-func validateCodeWorkflow(toolsExecuted []string) error {
-	generateCodeIndex := -1
-	writeFileIndex := -1
-	compileIndex := -1
-
-	// Find indices of key operations
-	for i, tool := range toolsExecuted {
-		if tool == "generate_code" {
-			generateCodeIndex = i
-		}
-		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" {
-			// Only count file operations AFTER generate_code
-			if generateCodeIndex >= 0 && i > generateCodeIndex && writeFileIndex == -1 {
-				writeFileIndex = i
-			}
-		}
-		if tool == "compile" {
-			// Only count compile AFTER write_file
-			if writeFileIndex >= 0 && i > writeFileIndex && compileIndex == -1 {
-				compileIndex = i
-			}
-		}
-	}
-
-	// If generate_code was called, verify the full sequence
-	if generateCodeIndex >= 0 {
-		if writeFileIndex == -1 {
-			return fmt.Errorf("generate_code was called but code was never saved (missing write_file AFTER generate_code)")
-		}
-		if compileIndex == -1 {
-			return fmt.Errorf("code was generated and saved but never compiled (missing compile AFTER write_file)")
-		}
-	}
-
-	return nil
 }

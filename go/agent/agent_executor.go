@@ -351,14 +351,6 @@ func formatArgsForAgent(args map[string]interface{}) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
-// truncateString truncates a string to n characters
-func truncateString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
 // extractPathFromPrompt extracts project_path from user prompt
 // The prompt format includes "- project_path: /path/to/project"
 func extractPathFromPrompt(userPrompt string) string {
