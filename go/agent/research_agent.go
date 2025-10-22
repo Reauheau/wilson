@@ -42,6 +42,13 @@ func (a *ResearchAgent) CanHandle(task *Task) bool {
 	return task.Type == TaskTypeResearch
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+func (a *ResearchAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	a.SetTaskContext(taskCtx)
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a research task using multi-source analysis
 func (a *ResearchAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{

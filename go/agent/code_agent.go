@@ -80,6 +80,17 @@ func (a *CodeAgent) CanHandle(task *Task) bool {
 	return task.Type == TaskTypeCode
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+// This is the preferred method - provides rich context for feedback and learning
+func (a *CodeAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	// Store context for feedback access
+	a.SetTaskContext(taskCtx)
+
+	// Convert to Task and execute
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a code-related task using the 3-layer architecture
 // Layer 1: INTENT (LLM Planning)
 // Layer 2: EXECUTION (Actual Tool Calls)
@@ -130,7 +141,8 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 			systemPrompt,
 			userPrompt,
 			a.purpose,
-			task.ID, // Pass task ID for progress updates
+			task.ID,          // Pass task ID for progress updates
+			a.currentContext, // Pass TaskContext for path extraction (Phase 2)
 		)
 
 		if err != nil {

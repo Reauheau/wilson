@@ -11,12 +11,14 @@ import (
 
 // BaseAgent provides common agent functionality
 type BaseAgent struct {
-	name         string
-	purpose      llm.Purpose
-	llmManager   *llm.Manager
-	contextMgr   *contextpkg.Manager
-	allowedTools []string
-	canDelegate  bool
+	name           string
+	purpose        llm.Purpose
+	llmManager     *llm.Manager
+	contextMgr     *contextpkg.Manager
+	allowedTools   []string
+	canDelegate    bool
+	currentTaskID  string       // For feedback
+	currentContext *TaskContext // Full context for rich feedback
 }
 
 // NewBaseAgent creates a new base agent
@@ -136,4 +138,24 @@ func (a *BaseAgent) CallLLM(ctx context.Context, systemPrompt, userPrompt string
 	// Use validation with retry for reliable JSON generation
 	// taskID is empty here since we don't have access to it in BaseAgent
 	return CallLLMWithValidation(ctx, a.llmManager, a.purpose, systemPrompt, userPrompt, 5, "")
+}
+
+// SetTaskContext stores the TaskContext for feedback access
+// Called by concrete agents in their ExecuteWithContext implementations
+func (a *BaseAgent) SetTaskContext(taskCtx *TaskContext) {
+	a.currentTaskID = taskCtx.TaskID
+	a.currentContext = taskCtx
+}
+
+// ConvertTaskContextToTask converts TaskContext to old Task format
+// Helper for concrete agents during transition period
+func (a *BaseAgent) ConvertTaskContextToTask(taskCtx *TaskContext) *Task {
+	return &Task{
+		ID:          taskCtx.TaskID,
+		Type:        string(taskCtx.Type),
+		Description: taskCtx.Description,
+		Input:       taskCtx.Input,
+		Priority:    taskCtx.Priority,
+		Status:      TaskPending,
+	}
 }

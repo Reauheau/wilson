@@ -51,6 +51,13 @@ func (a *TestAgent) CanHandle(task *Task) bool {
 	return task.Type == "test"
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+func (a *TestAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	a.SetTaskContext(taskCtx)
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a testing task
 func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{
@@ -89,6 +96,7 @@ func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		userPrompt,
 		a.purpose,
 		task.ID,
+		a.currentContext, // Pass TaskContext (Phase 2)
 	)
 
 	if err != nil {

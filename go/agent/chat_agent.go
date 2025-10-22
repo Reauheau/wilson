@@ -51,6 +51,13 @@ func (a *ChatAgent) CanHandle(task *Task) bool {
 	return task.Type == TaskTypeGeneral || task.Type == ""
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+func (a *ChatAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	a.SetTaskContext(taskCtx)
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a task
 func (a *ChatAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{
@@ -90,6 +97,7 @@ func (a *ChatAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		userPrompt,
 		a.purpose,
 		task.ID,
+		a.currentContext, // Pass TaskContext (Phase 2)
 	)
 
 	if err != nil {

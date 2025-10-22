@@ -35,6 +35,7 @@ type AgentToolExecutor struct {
 	executor      *registry.Executor
 	llmManager    *llm.Manager
 	maxIterations int
+	taskContext   *TaskContext // Rich execution context (Phase 2)
 }
 
 // NewAgentToolExecutor creates a new agent tool executor
@@ -66,7 +67,10 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 	userPrompt string,
 	purpose llm.Purpose,
 	taskID string, // Task ID for progress updates
+	taskContext *TaskContext, // Rich execution context (optional for backward compatibility)
 ) (*ExecutionResult, error) {
+	// Store context for use during execution
+	ate.taskContext = taskContext
 	result := &ExecutionResult{
 		Success:       false,
 		ToolsExecuted: []string{},
@@ -145,8 +149,14 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 		// AUTO-INJECT: If generate_code succeeded, immediately call write_file
 		// This removes LLM decision-making and makes workflow 100% reliable
 		if toolCall.Tool == "generate_code" && err == nil {
-			// Extract project path from user prompt (task.Input contains project_path)
-			projectPath := extractPathFromPrompt(userPrompt)
+			// Get project path from TaskContext (or fallback to extraction for backward compat)
+			projectPath := "."
+			if ate.taskContext != nil && ate.taskContext.ProjectPath != "" {
+				projectPath = ate.taskContext.ProjectPath
+			} else {
+				// Fallback for old code paths without TaskContext
+				projectPath = extractPathFromPrompt(userPrompt)
+			}
 
 			// Determine filename based on file type and language
 			filename := "main.go" // default

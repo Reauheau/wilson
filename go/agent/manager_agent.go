@@ -727,16 +727,16 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 			return fmt.Errorf("failed to start task %s: %w", task.TaskKey, err)
 		}
 
-		// Convert ManagedTask to simple Task for execution
-		simpleTask := m.convertToSimpleTask(task)
+		// Create TaskContext with full execution context
+		taskCtx := NewTaskContext(task)
 
-		// Load artifacts from dependent tasks and inject as context
-		if err := m.injectDependencyArtifacts(task, simpleTask); err != nil {
-			fmt.Printf("[ManagerAgent] Warning: Failed to load dependency artifacts: %v\n", err)
+		// Load artifacts from dependent tasks and inject into context
+		if err := m.injectDependencyContext(task, taskCtx); err != nil {
+			fmt.Printf("[ManagerAgent] Warning: Failed to load dependency context: %v\n", err)
 		}
 
-		// Execute task
-		result, err := agent.Execute(ctx, simpleTask)
+		// Execute task with rich context
+		result, err := agent.ExecuteWithContext(ctx, taskCtx)
 		if err != nil {
 			m.BlockTask(ctx, task.ID, err.Error())
 			return fmt.Errorf("task %s execution failed: %w", task.TaskKey, err)
@@ -801,24 +801,6 @@ func (m *ManagerAgent) getAgentForTaskType(taskType ManagedTaskType) Agent {
 		// Default to Code agent
 		agent, _ := m.registry.Get("Code")
 		return agent
-	}
-}
-
-// convertToSimpleTask converts ManagedTask to simple Task for agent execution
-func (m *ManagerAgent) convertToSimpleTask(mt *ManagedTask) *Task {
-	// Preserve the Input map which contains project_path and other context
-	input := mt.Input
-	if input == nil {
-		input = make(map[string]interface{})
-	}
-
-	return &Task{
-		ID:          mt.TaskKey,
-		Type:        string(mt.Type),
-		Description: mt.Description,
-		Input:       input,
-		Priority:    mt.Priority,
-		Status:      TaskPending,
 	}
 }
 
@@ -1029,57 +1011,6 @@ func extractProjectPath(request string) string {
 	return "."
 }
 
-// injectDependencyArtifacts loads artifacts from dependent tasks and adds them to task input
-func (m *ManagerAgent) injectDependencyArtifacts(managedTask *ManagedTask, simpleTask *Task) error {
-	// If no dependencies, nothing to inject
-	if len(managedTask.DependsOn) == 0 {
-		return nil
-	}
-
-	// Collect file paths created by dependent tasks
-	var createdFiles []string
-
-	for _, depKey := range managedTask.DependsOn {
-		depTask, err := m.queue.GetTaskByKey(depKey)
-		if err != nil {
-			continue // Skip missing dependencies
-		}
-
-		// Extract file paths from task result/metadata
-		// Result typically contains tool execution output including file paths
-		if strings.Contains(depTask.Result, "Tools used:") {
-			// Parse result for file creation patterns
-			// Look for common patterns like "main.go", "test.go", etc.
-			lines := strings.Split(depTask.Result, "\n")
-			for _, line := range lines {
-				if strings.Contains(line, ".go") || strings.Contains(line, ".py") ||
-					strings.Contains(line, ".js") || strings.Contains(line, ".ts") {
-					// Extract potential filenames
-					words := strings.Fields(line)
-					for _, word := range words {
-						if strings.Contains(word, ".go") || strings.Contains(word, ".py") ||
-							strings.Contains(word, ".js") || strings.Contains(word, ".ts") {
-							createdFiles = append(createdFiles, word)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Inject discovered files into task input
-	if len(createdFiles) > 0 {
-		if simpleTask.Input == nil {
-			simpleTask.Input = make(map[string]interface{})
-		}
-		simpleTask.Input["dependency_files"] = createdFiles
-		fmt.Printf("[ManagerAgent] Injected %d dependency files into task %s context\n",
-			len(createdFiles), managedTask.TaskKey)
-	}
-
-	return nil
-}
-
 // extractCoreDescription removes test/build/execute keywords from request
 // to create focused subtask descriptions
 func extractCoreDescription(request string) string {
@@ -1111,4 +1042,47 @@ func extractCoreDescription(request string) string {
 	}
 
 	return strings.TrimSpace(coreDesc)
+}
+
+// injectDependencyContext loads artifacts from dependent tasks into TaskContext
+// This replaces the old injectDependencyArtifacts method
+func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskContext) error {
+	// If no dependencies, nothing to inject
+	if len(task.DependsOn) == 0 {
+		return nil
+	}
+
+	for _, depKey := range task.DependsOn {
+		depTask, err := m.queue.GetTaskByKey(depKey)
+		if err != nil {
+			continue // Skip missing dependencies
+		}
+
+		// Extract created files from metadata
+		if depTask.Metadata != nil {
+			if files, ok := depTask.Metadata["created_files"].([]interface{}); ok {
+				for _, f := range files {
+					if filePath, ok := f.(string); ok {
+						taskCtx.DependencyFiles = append(taskCtx.DependencyFiles, filePath)
+					}
+				}
+			}
+
+			// Extract errors for learning
+			if errors, ok := depTask.Metadata["errors"].([]interface{}); ok {
+				for _, e := range errors {
+					if errMsg, ok := e.(string); ok {
+						taskCtx.DependencyErrors = append(taskCtx.DependencyErrors, errMsg)
+					}
+				}
+			}
+		}
+	}
+
+	if len(taskCtx.DependencyFiles) > 0 {
+		fmt.Printf("[ManagerAgent] Injected %d dependency files into task %s context\n",
+			len(taskCtx.DependencyFiles), task.TaskKey)
+	}
+
+	return nil
 }

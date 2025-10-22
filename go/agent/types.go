@@ -21,6 +21,9 @@ type Agent interface {
 	// Execute executes a task and returns the result
 	Execute(ctx context.Context, task *Task) (*Result, error)
 
+	// ExecuteWithContext executes a task with full TaskContext (preferred method)
+	ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error)
+
 	// AllowedTools returns the tools this agent can use (empty = all tools)
 	AllowedTools() []string
 }

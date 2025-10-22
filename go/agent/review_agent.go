@@ -59,6 +59,13 @@ func (a *ReviewAgent) CanHandle(task *Task) bool {
 	return task.Type == "review"
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+func (a *ReviewAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	a.SetTaskContext(taskCtx)
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a review task
 func (a *ReviewAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{

@@ -43,6 +43,13 @@ func (a *AnalysisAgent) CanHandle(task *Task) bool {
 		task.Type == TaskTypeSummary
 }
 
+// ExecuteWithContext executes a task with full TaskContext
+func (a *AnalysisAgent) ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error) {
+	a.SetTaskContext(taskCtx)
+	task := a.ConvertTaskContextToTask(taskCtx)
+	return a.Execute(ctx, task)
+}
+
 // Execute executes a research or analysis task
 func (a *AnalysisAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{
