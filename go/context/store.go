@@ -118,6 +118,7 @@ func (s *Store) initSchema() error {
 		dod_met BOOLEAN DEFAULT FALSE,
 		depends_on TEXT,
 		blocks TEXT,
+		input TEXT,
 		result TEXT,
 		artifact_ids TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -195,6 +196,13 @@ func (s *Store) initSchema() error {
 
 	// FTS5 is optional - if it fails, we'll use regular queries
 	_, _ = s.db.Exec(ftsSchema)
+
+	// Migration: Add input column to tasks table if it doesn't exist
+	migrationSQL := `
+	ALTER TABLE tasks ADD COLUMN input TEXT;
+	`
+	// This will fail silently if column already exists, which is fine
+	_, _ = s.db.Exec(migrationSQL)
 
 	return nil
 }

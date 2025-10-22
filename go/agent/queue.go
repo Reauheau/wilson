@@ -42,6 +42,7 @@ func (q *TaskQueue) CreateTask(task *ManagedTask) error {
 	dodCriteria, _ := json.Marshal(task.DODCriteria)
 	dependsOn, _ := json.Marshal(task.DependsOn)
 	blocks, _ := json.Marshal(task.Blocks)
+	input, _ := json.Marshal(task.Input)
 	artifactIDs, _ := json.Marshal(task.ArtifactIDs)
 	metadata, _ := json.Marshal(task.Metadata)
 
@@ -50,17 +51,17 @@ func (q *TaskQueue) CreateTask(task *ManagedTask) error {
 			parent_task_id, task_key, title, description, type,
 			assigned_to, assigned_at, status, priority,
 			dor_criteria, dor_met, dod_criteria, dod_met,
-			depends_on, blocks, result, artifact_ids,
+			depends_on, blocks, input, result, artifact_ids,
 			created_at, started_at, completed_at,
 			review_status, review_comments, reviewer, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := q.db.Exec(query,
 		task.ParentTaskID, task.TaskKey, task.Title, task.Description, task.Type,
 		task.AssignedTo, task.AssignedAt, task.Status, task.Priority,
 		dorCriteria, task.DORMet, dodCriteria, task.DODMet,
-		dependsOn, blocks, task.Result, artifactIDs,
+		dependsOn, blocks, input, task.Result, artifactIDs,
 		task.CreatedAt, task.StartedAt, task.CompletedAt,
 		task.ReviewStatus, task.ReviewComments, task.Reviewer, metadata,
 	)
@@ -84,7 +85,7 @@ func (q *TaskQueue) GetTask(id int) (*ManagedTask, error) {
 		SELECT id, parent_task_id, task_key, title, description, type,
 			assigned_to, assigned_at, status, priority,
 			dor_criteria, dor_met, dod_criteria, dod_met,
-			depends_on, blocks, result, artifact_ids,
+			depends_on, blocks, input, result, artifact_ids,
 			created_at, started_at, completed_at,
 			review_status, review_comments, reviewer, metadata
 		FROM tasks WHERE id = ?
@@ -99,7 +100,7 @@ func (q *TaskQueue) GetTaskByKey(taskKey string) (*ManagedTask, error) {
 		SELECT id, parent_task_id, task_key, title, description, type,
 			assigned_to, assigned_at, status, priority,
 			dor_criteria, dor_met, dod_criteria, dod_met,
-			depends_on, blocks, result, artifact_ids,
+			depends_on, blocks, input, result, artifact_ids,
 			created_at, started_at, completed_at,
 			review_status, review_comments, reviewer, metadata
 		FROM tasks WHERE task_key = ?
@@ -119,6 +120,7 @@ func (q *TaskQueue) UpdateTask(task *ManagedTask) error {
 	dodCriteria, _ := json.Marshal(task.DODCriteria)
 	dependsOn, _ := json.Marshal(task.DependsOn)
 	blocks, _ := json.Marshal(task.Blocks)
+	input, _ := json.Marshal(task.Input)
 	artifactIDs, _ := json.Marshal(task.ArtifactIDs)
 	metadata, _ := json.Marshal(task.Metadata)
 
@@ -127,7 +129,7 @@ func (q *TaskQueue) UpdateTask(task *ManagedTask) error {
 			parent_task_id = ?, task_key = ?, title = ?, description = ?, type = ?,
 			assigned_to = ?, assigned_at = ?, status = ?, priority = ?,
 			dor_criteria = ?, dor_met = ?, dod_criteria = ?, dod_met = ?,
-			depends_on = ?, blocks = ?, result = ?, artifact_ids = ?,
+			depends_on = ?, blocks = ?, input = ?, result = ?, artifact_ids = ?,
 			started_at = ?, completed_at = ?,
 			review_status = ?, review_comments = ?, reviewer = ?, metadata = ?
 		WHERE id = ?
@@ -137,7 +139,7 @@ func (q *TaskQueue) UpdateTask(task *ManagedTask) error {
 		task.ParentTaskID, task.TaskKey, task.Title, task.Description, task.Type,
 		task.AssignedTo, task.AssignedAt, task.Status, task.Priority,
 		dorCriteria, task.DORMet, dodCriteria, task.DODMet,
-		dependsOn, blocks, task.Result, artifactIDs,
+		dependsOn, blocks, input, task.Result, artifactIDs,
 		task.StartedAt, task.CompletedAt,
 		task.ReviewStatus, task.ReviewComments, task.Reviewer, metadata,
 		task.ID,
@@ -163,7 +165,7 @@ func (q *TaskQueue) ListTasks(filters TaskFilters) ([]*ManagedTask, error) {
 		SELECT id, parent_task_id, task_key, title, description, type,
 			assigned_to, assigned_at, status, priority,
 			dor_criteria, dor_met, dod_criteria, dod_met,
-			depends_on, blocks, result, artifact_ids,
+			depends_on, blocks, input, result, artifact_ids,
 			created_at, started_at, completed_at,
 			review_status, review_comments, reviewer, metadata
 		FROM tasks WHERE 1=1
@@ -415,7 +417,7 @@ func (q *TaskQueue) generateTaskKey() string {
 func (q *TaskQueue) scanTask(row *sql.Row) (*ManagedTask, error) {
 	task := &ManagedTask{}
 
-	var dorCriteria, dodCriteria, dependsOn, blocks, artifactIDs, metadata []byte
+	var dorCriteria, dodCriteria, dependsOn, blocks, input, artifactIDs, metadata []byte
 	var parentTaskID sql.NullInt64
 	var assignedTo, result, reviewComments, reviewer sql.NullString
 	var assignedAt, startedAt, completedAt sql.NullTime
@@ -425,7 +427,7 @@ func (q *TaskQueue) scanTask(row *sql.Row) (*ManagedTask, error) {
 		&task.ID, &parentTaskID, &task.TaskKey, &task.Title, &task.Description, &task.Type,
 		&assignedTo, &assignedAt, &task.Status, &task.Priority,
 		&dorCriteria, &task.DORMet, &dodCriteria, &task.DODMet,
-		&dependsOn, &blocks, &result, &artifactIDs,
+		&dependsOn, &blocks, &input, &result, &artifactIDs,
 		&task.CreatedAt, &startedAt, &completedAt,
 		&reviewStatus, &reviewComments, &reviewer, &metadata,
 	)
@@ -435,14 +437,14 @@ func (q *TaskQueue) scanTask(row *sql.Row) (*ManagedTask, error) {
 	}
 
 	return q.populateTask(task, parentTaskID, assignedTo, result, reviewComments, reviewer,
-		assignedAt, startedAt, completedAt, reviewStatus, dorCriteria, dodCriteria, dependsOn, blocks, artifactIDs, metadata)
+		assignedAt, startedAt, completedAt, reviewStatus, dorCriteria, dodCriteria, dependsOn, blocks, input, artifactIDs, metadata)
 }
 
 // scanTaskFromRows scans a row from a result set into a ManagedTask
 func (q *TaskQueue) scanTaskFromRows(rows *sql.Rows) (*ManagedTask, error) {
 	task := &ManagedTask{}
 
-	var dorCriteria, dodCriteria, dependsOn, blocks, artifactIDs, metadata []byte
+	var dorCriteria, dodCriteria, dependsOn, blocks, input, artifactIDs, metadata []byte
 	var parentTaskID sql.NullInt64
 	var assignedTo, result, reviewComments, reviewer sql.NullString
 	var assignedAt, startedAt, completedAt sql.NullTime
@@ -452,7 +454,7 @@ func (q *TaskQueue) scanTaskFromRows(rows *sql.Rows) (*ManagedTask, error) {
 		&task.ID, &parentTaskID, &task.TaskKey, &task.Title, &task.Description, &task.Type,
 		&assignedTo, &assignedAt, &task.Status, &task.Priority,
 		&dorCriteria, &task.DORMet, &dodCriteria, &task.DODMet,
-		&dependsOn, &blocks, &result, &artifactIDs,
+		&dependsOn, &blocks, &input, &result, &artifactIDs,
 		&task.CreatedAt, &startedAt, &completedAt,
 		&reviewStatus, &reviewComments, &reviewer, &metadata,
 	)
@@ -462,13 +464,13 @@ func (q *TaskQueue) scanTaskFromRows(rows *sql.Rows) (*ManagedTask, error) {
 	}
 
 	return q.populateTask(task, parentTaskID, assignedTo, result, reviewComments, reviewer,
-		assignedAt, startedAt, completedAt, reviewStatus, dorCriteria, dodCriteria, dependsOn, blocks, artifactIDs, metadata)
+		assignedAt, startedAt, completedAt, reviewStatus, dorCriteria, dodCriteria, dependsOn, blocks, input, artifactIDs, metadata)
 }
 
 // populateTask populates a task with nullable and JSON fields
 func (q *TaskQueue) populateTask(task *ManagedTask, parentTaskID sql.NullInt64, assignedTo, result, reviewComments, reviewer sql.NullString,
 	assignedAt, startedAt, completedAt sql.NullTime, reviewStatus sql.NullString,
-	dorCriteria, dodCriteria, dependsOn, blocks, artifactIDs, metadata []byte) (*ManagedTask, error) {
+	dorCriteria, dodCriteria, dependsOn, blocks, input, artifactIDs, metadata []byte) (*ManagedTask, error) {
 
 	// Handle nullable fields
 	if parentTaskID.Valid {
@@ -512,6 +514,9 @@ func (q *TaskQueue) populateTask(task *ManagedTask, parentTaskID sql.NullInt64, 
 	}
 	if len(blocks) > 0 {
 		json.Unmarshal(blocks, &task.Blocks)
+	}
+	if len(input) > 0 {
+		json.Unmarshal(input, &task.Input)
 	}
 	if len(artifactIDs) > 0 {
 		json.Unmarshal(artifactIDs, &task.ArtifactIDs)

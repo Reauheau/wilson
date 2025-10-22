@@ -45,47 +45,50 @@ const (
 // This is the enhanced version with DoR/DoD, dependencies, and review workflow
 // The simple Task type in types.go is used for basic agent delegation
 type ManagedTask struct {
-	ID            int            `json:"id"`
-	ParentTaskID  *int           `json:"parent_task_id,omitempty"`
-	TaskKey       string         `json:"task_key"`        // e.g., TASK-001
-	Title         string         `json:"title"`
-	Description   string         `json:"description"`
-	Type          ManagedTaskType   `json:"type"`
+	ID           int             `json:"id"`
+	ParentTaskID *int            `json:"parent_task_id,omitempty"`
+	TaskKey      string          `json:"task_key"` // e.g., TASK-001
+	Title        string          `json:"title"`
+	Description  string          `json:"description"`
+	Type         ManagedTaskType `json:"type"`
 
 	// Assignment
-	AssignedTo    string            `json:"assigned_to,omitempty"`
-	AssignedAt    *time.Time        `json:"assigned_at,omitempty"`
+	AssignedTo string     `json:"assigned_to,omitempty"`
+	AssignedAt *time.Time `json:"assigned_at,omitempty"`
 
 	// Status
-	Status        ManagedTaskStatus `json:"status"`
-	Priority      int            `json:"priority"`        // Higher = more important
+	Status   ManagedTaskStatus `json:"status"`
+	Priority int               `json:"priority"` // Higher = more important
 
 	// Definition of Ready/Done
-	DORCriteria   []string       `json:"dor_criteria"`
-	DORMet        bool           `json:"dor_met"`
-	DODCriteria   []string       `json:"dod_criteria"`
-	DODMet        bool           `json:"dod_met"`
+	DORCriteria []string `json:"dor_criteria"`
+	DORMet      bool     `json:"dor_met"`
+	DODCriteria []string `json:"dod_criteria"`
+	DODMet      bool     `json:"dod_met"`
 
 	// Dependencies
-	DependsOn     []string       `json:"depends_on"`      // Task keys this depends on
-	Blocks        []string       `json:"blocks"`          // Task keys this blocks
+	DependsOn []string `json:"depends_on"` // Task keys this depends on
+	Blocks    []string `json:"blocks"`     // Task keys this blocks
+
+	// Input parameters (e.g., project_path, file_type)
+	Input map[string]interface{} `json:"input,omitempty"`
 
 	// Results
-	Result        string         `json:"result,omitempty"`
-	ArtifactIDs   []int          `json:"artifact_ids,omitempty"`
+	Result      string `json:"result,omitempty"`
+	ArtifactIDs []int  `json:"artifact_ids,omitempty"`
 
 	// Timestamps
-	CreatedAt     time.Time      `json:"created_at"`
-	StartedAt     *time.Time     `json:"started_at,omitempty"`
-	CompletedAt   *time.Time     `json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 
 	// Review
-	ReviewStatus  ReviewStatus   `json:"review_status,omitempty"`
-	ReviewComments string        `json:"review_comments,omitempty"`
-	Reviewer      string         `json:"reviewer,omitempty"`
+	ReviewStatus   ReviewStatus `json:"review_status,omitempty"`
+	ReviewComments string       `json:"review_comments,omitempty"`
+	Reviewer       string       `json:"reviewer,omitempty"`
 
 	// Metadata
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Subtask is an alias for ManagedTask but semantically represents a child task
@@ -93,14 +96,14 @@ type Subtask = ManagedTask
 
 // TaskReview represents a review of a task's completion
 type TaskReview struct {
-	ID           int            `json:"id"`
-	TaskID       int            `json:"task_id"`
-	ReviewerAgent string        `json:"reviewer_agent"`
-	ReviewType   string         `json:"review_type"` // code_review, security_review, quality_review
-	Status       ReviewStatus   `json:"status"`
-	Findings     []Finding      `json:"findings"`
-	Comments     string         `json:"comments"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID            int          `json:"id"`
+	TaskID        int          `json:"task_id"`
+	ReviewerAgent string       `json:"reviewer_agent"`
+	ReviewType    string       `json:"review_type"` // code_review, security_review, quality_review
+	Status        ReviewStatus `json:"status"`
+	Findings      []Finding    `json:"findings"`
+	Comments      string       `json:"comments"`
+	CreatedAt     time.Time    `json:"created_at"`
 }
 
 // Finding represents an issue found during review

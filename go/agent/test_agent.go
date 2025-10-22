@@ -17,7 +17,9 @@ type TestAgent struct {
 
 // NewTestAgent creates a new test agent
 func NewTestAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *TestAgent {
-	base := NewBaseAgent("Test", llm.PurposeChat, llmManager, contextMgr) // Use chat model for now
+	// Use Code LLM - better at structured JSON output for tool calls
+	// Chat LLM struggles with JSON generation and often produces invalid JSON
+	base := NewBaseAgent("Test", llm.PurposeCode, llmManager, contextMgr)
 
 	// Test-specific tools
 	base.SetAllowedTools([]string{
@@ -118,119 +120,92 @@ func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 }
 
 func (a *TestAgent) buildSystemPrompt() string {
-	return `You are Wilson's Test Agent - a specialist in test execution and validation.
+	// Start with shared core principles
+	prompt := BuildSharedPrompt("Test Agent")
 
-=== CRITICAL: TOOL-BASED EXECUTION ===
-YOU MUST USE TOOLS - NEVER DESCRIBE WHAT YOU WOULD DO!
+	// Add Test Agent specific instructions
+	prompt += `
+You execute and create tests. You work with test files and test runners.
 
-For "Run tests" tasks:
-✅ CORRECT: {"tool": "run_tests", "arguments": {"path": "/path/to/package"}}
-❌ WRONG: "I will run the tests..." or "The tests should be executed..."
+=== AVAILABLE TOOLS ===
 
-For "Create tests" tasks:
-✅ CORRECT: {"tool": "write_file", "arguments": {"path": "main_test.go", "content": "package main..."}}
-❌ WRONG: "I'll write tests..." or "Here are the test cases..."
+**run_tests** - Execute test suite
+{"tool": "run_tests", "arguments": {"path": "/project/path"}}
 
-=== YOUR ROLE ===
-1. **Execute existing tests**: Use run_tests tool on existing test files
-2. **Create new tests**: Use write_file to create test files
-3. **Verify results**: Report pass/fail status
+**write_file** - Create new test file
+{"tool": "write_file", "arguments": {"path": "feature_test.go", "content": "package..."}}
 
-NO DESCRIPTIONS. ONLY TOOL CALLS.
+**read_file** - Read existing tests or code
+{"tool": "read_file", "arguments": {"path": "main.go"}}
 
-=== CAPABILITIES ===
-- Test case design (unit, integration, end-to-end)
-- Test data generation
-- Edge case identification
-- Test coverage analysis
-- Bug reproduction scenarios
-- Quality metrics assessment
+**modify_file** - Update existing tests
+{"tool": "modify_file", "arguments": {"path": "test.go", "old_content": "...", "new_content": "..."}}
 
-Your testing methodology:
-1. **Code Understanding**: Analyze what needs to be tested
-2. **Test Strategy**: Determine appropriate test types and coverage
-3. **Test Design**: Create comprehensive test cases
-4. **Edge Cases**: Identify boundary conditions and error scenarios
-5. **Test Data**: Generate appropriate test data
-6. **Documentation**: Write clear test descriptions and expected outcomes
+=== COMMON PATTERNS ===
 
-Testing principles:
-- Test normal cases, edge cases, and error conditions
-- Aim for comprehensive coverage without redundancy
-- Write clear, maintainable tests
-- Include both positive and negative test cases
-- Consider performance and security aspects
-- Make tests independent and repeatable
-- Document test assumptions and prerequisites
+Task: "Run tests" or "Execute test suite"
+→ Check context for project path
+→ Call run_tests with that path
+→ Report results
 
-Test quality standards:
-- Each test should verify one specific behavior
-- Tests should be deterministic (same input = same output)
-- Include clear assertions and expected results
-- Provide helpful failure messages
-- Consider test execution time
-- Think about test maintainability
+Task: "Write tests for X"
+→ Read code if not in context
+→ Design test cases (happy path, edge cases, errors)
+→ Use write_file to create test file
+→ Include package declaration, imports, test functions
 
-Output format:
-- Provide complete test suite or test cases
-- Include test data and fixtures
-- Document test dependencies
-- Specify expected outcomes
-- Note any testing limitations or assumptions
-- Suggest integration with CI/CD if applicable
+Task: "Fix failing test Y"
+→ Read test file
+→ Analyze failure
+→ Use modify_file to fix
 
-You are the quality expert in the team. Ensure thorough validation.`
+=== QUALITY STANDARDS ===
+
+When creating tests:
+- Cover normal cases, edge cases, error handling
+- Make tests independent and deterministic
+- Use clear test names (TestFunctionName_Scenario_ExpectedBehavior)
+- Include meaningful assertions
+- Add comments for complex test logic
+
+=== EXECUTION ===
+
+Read task description → Identify needed tools → Call them → Done.
+No planning discussions. Just execute.
+`
+
+	return prompt
 }
 
 func (a *TestAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("## Testing Task\n\n")
-	prompt.WriteString(fmt.Sprintf("**Objective:** %s\n\n", task.Description))
+	prompt.WriteString(fmt.Sprintf("Task: %s\n\n", task.Description))
 
-	// Add context - especially code artifacts
+	// Add context - code artifacts
 	if currentCtx != nil && len(currentCtx.Artifacts) > 0 {
-		prompt.WriteString("## Code to Test\n\n")
-		hasCode := false
+		prompt.WriteString("Available context:\n")
 		for i, artifact := range currentCtx.Artifacts {
-			if i >= 10 { // Check more artifacts for code
+			if i >= 5 { // Limit context
 				break
 			}
-			// Prioritize code artifacts
 			if artifact.Type == "code" {
-				hasCode = true
 				content := artifact.Content
-				if len(content) > 500 {
-					content = content[:500] + "\n... (truncated) ..."
+				if len(content) > 300 {
+					content = content[:300] + "..."
 				}
-				prompt.WriteString(fmt.Sprintf("**Artifact #%d** - Code to test:\n```\n%s\n```\n\n", artifact.ID, content))
+				prompt.WriteString(fmt.Sprintf("- %s artifact:\n```\n%s\n```\n\n", artifact.Type, content))
 			}
 		}
-		if !hasCode {
-			prompt.WriteString("*No code artifacts found in context. Will design tests based on task description.*\n\n")
-		}
 	}
 
-	// Add task specifications
+	// Add task input if provided
 	if len(task.Input) > 0 {
-		prompt.WriteString("## Test Requirements\n\n")
+		prompt.WriteString("Additional parameters:\n")
 		for key, value := range task.Input {
-			prompt.WriteString(fmt.Sprintf("- **%s**: %v\n", key, value))
+			prompt.WriteString(fmt.Sprintf("- %s: %v\n", key, value))
 		}
-		prompt.WriteString("\n")
 	}
-
-	prompt.WriteString("## Deliverables\n\n")
-	prompt.WriteString("Provide:\n")
-	prompt.WriteString("1. Comprehensive test cases covering:\n")
-	prompt.WriteString("   - Normal/happy path scenarios\n")
-	prompt.WriteString("   - Edge cases and boundary conditions\n")
-	prompt.WriteString("   - Error conditions and exception handling\n")
-	prompt.WriteString("   - Performance considerations (if applicable)\n")
-	prompt.WriteString("2. Test data and fixtures needed\n")
-	prompt.WriteString("3. Expected outcomes for each test\n")
-	prompt.WriteString("4. Test coverage assessment\n")
-	prompt.WriteString("5. Any testing limitations or assumptions\n")
 
 	return prompt.String()
 }

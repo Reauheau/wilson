@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"wilson/core/registry"
@@ -144,12 +145,18 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 		// AUTO-INJECT: If generate_code succeeded, immediately call write_file
 		// This removes LLM decision-making and makes workflow 100% reliable
 		if toolCall.Tool == "generate_code" && err == nil {
-			// Extract target path from the generate_code arguments
-			targetPath := "/tmp/generated_code.go"
+			// Extract project path from user prompt (task.Input contains project_path)
+			projectPath := extractPathFromPrompt(userPrompt)
+
+			// Determine filename based on file type and language
+			filename := "main.go" // default
 			if lang, ok := toolCall.Arguments["language"].(string); ok {
 				if desc, ok := toolCall.Arguments["description"].(string); ok {
-					// Check if this is for a test file - check both description and requirements
-					isTestFile := strings.Contains(strings.ToLower(desc), "test")
+					// Check if this is for a test file
+					isTestFile := strings.Contains(strings.ToLower(desc), "test") ||
+						strings.Contains(strings.ToLower(userPrompt), "file_type: test")
+
+					// Also check requirements
 					if reqs, ok := toolCall.Arguments["requirements"].([]interface{}); ok {
 						for _, req := range reqs {
 							if reqStr, ok := req.(string); ok {
@@ -161,34 +168,32 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 						}
 					}
 
-					// Try to infer filename from description/requirements
+					// Determine filename
 					if isTestFile {
 						if lang == "go" {
-							targetPath = "main_test.go"
+							filename = "main_test.go"
 						} else {
-							targetPath = "test_main." + lang
+							filename = "test_main." + lang
 						}
 					} else {
 						if lang == "go" {
-							targetPath = "main.go"
+							filename = "main.go"
 						} else {
-							targetPath = "main." + lang
+							filename = "main." + lang
 						}
 					}
 				}
 			}
 
-			// Check if path hint exists in original user prompt or system prompt
-			if strings.Contains(userPrompt, "wilsontestdir") {
-				targetPath = "/Users/roderick.vannievelt/IdeaProjects/wilsontestdir/" + targetPath
-			}
+			// Build full target path
+			targetPath := filepath.Join(projectPath, filename)
 
 			// Extract filename for display
-			filename := targetPath
+			displayName := filename
 			if idx := strings.LastIndex(targetPath, "/"); idx != -1 {
-				filename = targetPath[idx+1:]
+				displayName = targetPath[idx+1:]
 			}
-			printStatus(fmt.Sprintf("Generating code for %s...", filename))
+			printStatus(fmt.Sprintf("Generating code for %s...", displayName))
 
 			// Auto-inject write_file call
 			writeFileCall := ToolCall{
@@ -276,8 +281,13 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				result.Output = fmt.Sprintf("Code generated and compiled successfully.\n\nTools used: %v", result.ToolsExecuted)
 				return result, nil
 			} else {
-				// Compile had errors - show status and continue for retry
-				printStatus("Compile errors detected, attempting fix...")
+				// Compile had errors - ATOMIC TASK PRINCIPLE: File is generated, task complete
+				// Don't try to fix compile errors here - that would violate atomic task principle
+				// If fixes needed, ManagerAgent should create a new "fix compile errors" subtask
+				printStatus("Compilation failed - task complete (file generated)")
+				result.Success = true // File was generated and written
+				result.Output = fmt.Sprintf("Code file generated.\n\nCompilation errors detected:\n%s\n\nTools used: %v", compileResult, result.ToolsExecuted)
+				return result, nil
 			}
 		}
 
@@ -337,4 +347,29 @@ func truncateString(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// extractPathFromPrompt extracts project_path from user prompt
+// The prompt format includes "- project_path: /path/to/project"
+func extractPathFromPrompt(userPrompt string) string {
+	// Look for "project_path:" (with or without dash prefix)
+	searchPattern := "project_path:"
+	if idx := strings.Index(userPrompt, searchPattern); idx != -1 {
+		pathStart := idx + len(searchPattern)
+		// Skip any whitespace after the colon
+		pathStart += len(userPrompt[pathStart:]) - len(strings.TrimLeft(userPrompt[pathStart:], " \t"))
+
+		// Find end of path (newline or end of string)
+		pathEnd := strings.IndexAny(userPrompt[pathStart:], "\n\r")
+		if pathEnd == -1 {
+			pathEnd = len(userPrompt) - pathStart
+		}
+		path := strings.TrimSpace(userPrompt[pathStart : pathStart+pathEnd])
+		if path != "" && path != "." {
+			return path
+		}
+	}
+
+	// Default to current directory
+	return "."
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -593,6 +595,9 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 
 	lower := strings.ToLower(request)
 
+	// Extract project path - this will be passed to all subtasks
+	projectPath := extractProjectPath(request)
+
 	// Check for keywords
 	hasTest := strings.Contains(lower, "test")
 	hasReview := strings.Contains(lower, "review")
@@ -603,6 +608,9 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 	mainDesc := extractCoreDescription(request)
 	task1 := NewManagedTask("Implement functionality", mainDesc, ManagedTaskTypeCode)
 	task1.ParentTaskID = &parentID
+	task1.Input = map[string]interface{}{
+		"project_path": projectPath,
+	}
 	SetDefaultDORCriteria(task1)
 	SetDefaultDODCriteria(task1)
 	m.queue.CreateTask(task1)
@@ -610,20 +618,28 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 
 	// Task 2: Add test coverage (depends on implementation)
 	if hasTest {
-		testDesc := "Write comprehensive test coverage for the implementation"
+		testDesc := "Write comprehensive test coverage. First read the source files created by the previous task to understand what to test, then generate appropriate test files."
 		task2 := NewManagedTask("Add tests", testDesc, ManagedTaskTypeCode)
 		task2.ParentTaskID = &parentID
 		task2.DependsOn = []string{task1.TaskKey}
+		task2.Input = map[string]interface{}{
+			"project_path":     projectPath,
+			"file_type":        "test",
+			"depends_on_tasks": []string{task1.TaskKey}, // Can look up what previous task created
+		}
 		SetDefaultDORCriteria(task2)
 		SetDefaultDODCriteria(task2)
 		m.queue.CreateTask(task2)
 		subtasks = append(subtasks, task2)
 
 		// Task 3: Run the test suite
-		testRunDesc := fmt.Sprintf("Run the test suite to verify functionality")
+		testRunDesc := fmt.Sprintf("Execute go test in %s", projectPath)
 		task3 := NewManagedTask("Run tests", testRunDesc, ManagedTaskTypeTest)
 		task3.ParentTaskID = &parentID
 		task3.DependsOn = []string{task2.TaskKey}
+		task3.Input = map[string]interface{}{
+			"project_path": projectPath,
+		}
 		SetDefaultDORCriteria(task3)
 		SetDefaultDODCriteria(task3)
 		m.queue.CreateTask(task3)
@@ -632,11 +648,14 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 
 	// Task: If build mentioned, add build step
 	if hasBuild {
-		buildDesc := fmt.Sprintf("Build the project")
+		buildDesc := fmt.Sprintf("Build the project in %s", projectPath)
 		taskBuild := NewManagedTask("Build project", buildDesc, ManagedTaskTypeCode)
 		taskBuild.ParentTaskID = &parentID
 		if len(subtasks) > 0 {
 			taskBuild.DependsOn = []string{subtasks[len(subtasks)-1].TaskKey}
+		}
+		taskBuild.Input = map[string]interface{}{
+			"project_path": projectPath,
 		}
 		SetDefaultDORCriteria(taskBuild)
 		SetDefaultDODCriteria(taskBuild)
@@ -651,6 +670,9 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 		taskReview.ParentTaskID = &parentID
 		if len(subtasks) > 0 {
 			taskReview.DependsOn = []string{subtasks[len(subtasks)-1].TaskKey}
+		}
+		taskReview.Input = map[string]interface{}{
+			"project_path": projectPath,
 		}
 		SetDefaultDORCriteria(taskReview)
 		SetDefaultDODCriteria(taskReview)
@@ -707,6 +729,11 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 
 		// Convert ManagedTask to simple Task for execution
 		simpleTask := m.convertToSimpleTask(task)
+
+		// Load artifacts from dependent tasks and inject as context
+		if err := m.injectDependencyArtifacts(task, simpleTask); err != nil {
+			fmt.Printf("[ManagerAgent] Warning: Failed to load dependency artifacts: %v\n", err)
+		}
 
 		// Execute task
 		result, err := agent.Execute(ctx, simpleTask)
@@ -779,11 +806,17 @@ func (m *ManagerAgent) getAgentForTaskType(taskType ManagedTaskType) Agent {
 
 // convertToSimpleTask converts ManagedTask to simple Task for agent execution
 func (m *ManagerAgent) convertToSimpleTask(mt *ManagedTask) *Task {
+	// Preserve the Input map which contains project_path and other context
+	input := mt.Input
+	if input == nil {
+		input = make(map[string]interface{})
+	}
+
 	return &Task{
 		ID:          mt.TaskKey,
 		Type:        string(mt.Type),
 		Description: mt.Description,
-		Input:       make(map[string]interface{}),
+		Input:       input,
 		Priority:    mt.Priority,
 		Status:      TaskPending,
 	}
@@ -905,14 +938,19 @@ func (m *ManagerAgent) handleSimpleRequest(ctx context.Context, request string) 
 
 	fmt.Printf("[ManagerAgent] Delegating to %s agent\n", agent.Name())
 
+	// Extract project path for simple tasks too
+	projectPath := extractProjectPath(request)
+
 	// Create simple task
 	task := &Task{
 		ID:          fmt.Sprintf("SIMPLE-%d", time.Now().Unix()),
 		Type:        string(taskType),
 		Description: request,
-		Input:       make(map[string]interface{}),
-		Priority:    1,
-		Status:      TaskPending,
+		Input: map[string]interface{}{
+			"project_path": projectPath,
+		},
+		Priority: 1,
+		Status:   TaskPending,
 	}
 
 	// Execute directly
@@ -923,7 +961,10 @@ func (m *ManagerAgent) handleSimpleRequest(ctx context.Context, request string) 
 func (m *ManagerAgent) inferTaskType(request string) ManagedTaskType {
 	lower := strings.ToLower(request)
 
-	if strings.Contains(lower, "test") {
+	// Check for test-related actions (not just the word "test" in path names)
+	if strings.Contains(lower, "run test") || strings.Contains(lower, "execute test") ||
+		strings.Contains(lower, "test suite") || strings.Contains(lower, "write test") ||
+		strings.Contains(lower, "create test") {
 		return ManagedTaskTypeTest
 	}
 	if strings.Contains(lower, "review") || strings.Contains(lower, "check quality") {
@@ -938,6 +979,105 @@ func (m *ManagerAgent) inferTaskType(request string) ManagedTaskType {
 
 	// Default: code task
 	return ManagedTaskTypeCode
+}
+
+// extractProjectPath extracts the target directory from user request
+// Looks for patterns like "in ~/path" or "in /absolute/path"
+func extractProjectPath(request string) string {
+	// Look for " in " or start with "in "
+	lowerReq := strings.ToLower(request)
+
+	// Find "in " pattern
+	idx := strings.Index(lowerReq, " in ")
+	if idx == -1 && strings.HasPrefix(lowerReq, "in ") {
+		idx = -1 // Will become 0 after +4
+	}
+
+	if idx >= -1 {
+		// Calculate start position
+		pathStart := idx + 4 // Skip " in " or "in "
+		if pathStart >= len(request) {
+			return "."
+		}
+
+		remaining := request[pathStart:]
+
+		// Find end of path (space before a verb like "create", or end of string)
+		pathEnd := len(remaining)
+		words := strings.Fields(remaining)
+		if len(words) > 0 {
+			// First word is likely the path
+			pathEnd = len(words[0])
+		}
+
+		path := strings.TrimSpace(remaining[:pathEnd])
+
+		// Expand ~ to home directory
+		if strings.HasPrefix(path, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+
+		// Only return if it looks like a valid path
+		if path != "" && (strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") || strings.Contains(path, "/")) {
+			return path
+		}
+	}
+
+	// Default to current directory
+	return "."
+}
+
+// injectDependencyArtifacts loads artifacts from dependent tasks and adds them to task input
+func (m *ManagerAgent) injectDependencyArtifacts(managedTask *ManagedTask, simpleTask *Task) error {
+	// If no dependencies, nothing to inject
+	if len(managedTask.DependsOn) == 0 {
+		return nil
+	}
+
+	// Collect file paths created by dependent tasks
+	var createdFiles []string
+
+	for _, depKey := range managedTask.DependsOn {
+		depTask, err := m.queue.GetTaskByKey(depKey)
+		if err != nil {
+			continue // Skip missing dependencies
+		}
+
+		// Extract file paths from task result/metadata
+		// Result typically contains tool execution output including file paths
+		if strings.Contains(depTask.Result, "Tools used:") {
+			// Parse result for file creation patterns
+			// Look for common patterns like "main.go", "test.go", etc.
+			lines := strings.Split(depTask.Result, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, ".go") || strings.Contains(line, ".py") ||
+					strings.Contains(line, ".js") || strings.Contains(line, ".ts") {
+					// Extract potential filenames
+					words := strings.Fields(line)
+					for _, word := range words {
+						if strings.Contains(word, ".go") || strings.Contains(word, ".py") ||
+							strings.Contains(word, ".js") || strings.Contains(word, ".ts") {
+							createdFiles = append(createdFiles, word)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Inject discovered files into task input
+	if len(createdFiles) > 0 {
+		if simpleTask.Input == nil {
+			simpleTask.Input = make(map[string]interface{})
+		}
+		simpleTask.Input["dependency_files"] = createdFiles
+		fmt.Printf("[ManagerAgent] Injected %d dependency files into task %s context\n",
+			len(createdFiles), managedTask.TaskKey)
+	}
+
+	return nil
 }
 
 // extractCoreDescription removes test/build/execute keywords from request

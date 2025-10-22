@@ -147,48 +147,8 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		}
 
 		// === LAYER 2.5: WORKFLOW VALIDATION - Check mandatory sequences ===
-		if err := validateCodeWorkflow(execResult.ToolsExecuted); err != nil {
-			if attempt < maxWorkflowRetries {
-				// Retry with feedback
-				fmt.Printf("\n❌ [Workflow Validation] Attempt %d/%d failed: %v\n", attempt, maxWorkflowRetries, err)
-				fmt.Printf("   Tools executed: %v\n", execResult.ToolsExecuted)
-				fmt.Printf("   Retrying with corrective feedback...\n\n")
-
-				// Extract the path from task description
-				targetPath := "/Users/roderick.vannievelt/IdeaProjects/wilsontestdir"
-				if strings.Contains(task.Description, "wilsontestdir") {
-					// Keep the path
-				} else if strings.Contains(strings.ToLower(task.Description), "test") {
-					// Likely a test file
-					targetPath = targetPath + "/main_test.go"
-				} else {
-					targetPath = targetPath + "/main.go"
-				}
-
-				// Simplified retry - just tell it what's missing
-				userPrompt = fmt.Sprintf(`Task incomplete. You executed: %v
-
-Missing step: %s
-
-Call the missing tool now.`,
-					execResult.ToolsExecuted, err.Error())
-
-				if coordinator != nil {
-					coordinator.UpdateTaskProgress(task.ID, "Retrying with workflow feedback...", nil)
-				}
-				continue // Retry
-			}
-
-			// Last attempt failed
-			result.Success = false
-			result.Error = fmt.Sprintf("Workflow validation failed after %d attempts: %v", maxWorkflowRetries, err)
-			result.Output = execResult.Output
-			result.Metadata = map[string]interface{}{
-				"tools_executed": execResult.ToolsExecuted,
-				"workflow_error": err.Error(),
-			}
-			return result, fmt.Errorf("workflow validation failed: %w", err)
-		}
+		// Note: Workflow validation is now handled by agent_executor.go auto-injection
+		// No retry logic needed here - atomic task principle means each task does one thing
 
 		// Workflow validation passed - continue to verification
 		break
@@ -257,134 +217,102 @@ func (a *CodeAgent) buildSystemPrompt() string {
 
 	// Add Code Agent specific instructions
 	prompt += `
-You are the CODE ORCHESTRATOR. You coordinate code development using tools.
+You orchestrate code generation. You delegate to specialized code models via tools.
 
 === YOUR ROLE ===
 
-You do NOT write code yourself. You ORCHESTRATE code generation.
-You delegate to the code model via generate_code tool, then save and validate.
+Generate ONE file per task. You are part of a multi-task workflow managed by the system.
 
-=== WORKFLOW (MANDATORY SEQUENCE) ===
+**Atomic Task Principle:**
+- Each task = ONE file or ONE code change
+- ManagerAgent coordinates multiple file workflows
+- You focus on executing YOUR assigned task only
 
-1. **generate_code** - Get code from specialist model
-   → Returns actual working code
+=== WORKFLOW (AUTOMATIC) ===
 
-2. **[AUTO-INJECTED]** - System saves code automatically
-   → write_file happens automatically after generate_code
+1. **generate_code** - You call this with requirements
+   → Code generation model creates code
 
-3. **[AUTO-INJECTED]** - System compiles automatically
-   → compile happens automatically after write_file
+2. **[AUTO]** write_file - System saves to filesystem
+   → Automatic after generate_code
 
-4. **REPEAT** - If user asked for multiple files (main + tests), call generate_code again
+3. **[AUTO]** compile - System validates compilation
+   → Automatic after write_file
+   → If errors: You get another chance to fix
 
-5. **DONE** - Only when ALL requested files are created
+4. **EXIT** - Task complete after successful compilation
+   → Next task (if any) handled by ManagerAgent
 
-CRITICAL: If user asks for "write a test file", you MUST generate BOTH main.go AND test file.
-Don't stop after first file. Generate ALL files user requested.
+=== TOOL USAGE ===
 
-=== TOOL USAGE RULES ===
-
-**generate_code** - For ALL code creation
+**generate_code** - Primary tool for code creation
 {"tool": "generate_code", "arguments": {
   "language": "go",
-  "description": "What the code should do",
-  "requirements": ["List", "of", "requirements"]
+  "description": "What this file should do",
+  "requirements": ["Requirement 1", "Requirement 2"]
 }}
 
-**compile** - After code is saved
-{"tool": "compile", "arguments": {"target": "/path/to/project"}}
+**read_file** - Understand existing code before modifying
+{"tool": "read_file", "arguments": {"path": "existing.go"}}
 
-**run_tests** - If tests exist
-{"tool": "run_tests", "arguments": {"package": "/path"}}
+**modify_file** - Change existing code
+{"tool": "modify_file", "arguments": {"path": "file.go", "old_content": "...", "new_content": "..."}}
 
-=== CODE UNDERSTANDING TOOLS ===
+=== EXAMPLE TASKS ===
 
-Before implementing, understand context:
-- **parse_file**: Read code structure (AST)
-- **find_symbol**: Locate definitions/usages
-- **find_patterns**: Learn existing style
-- **find_related**: Find dependencies
-
-=== EXAMPLE WORKFLOW ===
-
-**Example 1: Single file**
-Task: "Create Go program that opens Spotify"
-
-{"tool": "generate_code", "arguments": {
-  "language": "go",
-  "description": "CLI that opens applications using exec.Command",
-  "requirements": ["macOS support", "Error handling"]
+Task: "Implement main.go for app opener"
+→ {"tool": "generate_code", "arguments": {
+    "language": "go",
+    "description": "Main program that opens macOS applications",
+    "requirements": ["CLI interface", "Error handling", "Uses exec.Command"]
 }}
-→ System saves to main.go, compiles → Done
+→ System auto-saves and compiles
+→ Done (1 file created)
 
-**Example 2: Multiple files (MAIN + TEST)**
-Task: "Create Go program that opens apps. Also write a testfile."
-
-Step 1: Generate main program
-{"tool": "generate_code", "arguments": {
-  "language": "go",
-  "description": "CLI that opens applications using exec.Command",
-  "requirements": ["macOS support", "Error handling"]
+Task: "Write tests for code in /project"
+→ **CRITICAL: Discover and read source files first!**
+→ {"tool": "list_files", "arguments": {"directory": "/project"}}
+→ Find source files (e.g., main.go, handler.js, app.py)
+→ {"tool": "read_file", "arguments": {"path": "/project/[discovered_file]"}}
+→ Analyze: What functions? What logic? What needs testing?
+→ {"tool": "generate_code", "arguments": {
+    "language": "[same as source]",
+    "description": "Test file for [discovered_file] functionality",
+    "requirements": ["Test function X", "Test error case Y", "Test edge case Z"]
 }}
-→ System saves to main.go, compiles
+→ System auto-saves test file with proper naming convention
+→ Done (context-aware tests that actually test the real code)
 
-Step 2: Generate test file
-{"tool": "generate_code", "arguments": {
-  "language": "go",
-  "description": "Test file for the application opener CLI",
-  "requirements": ["Unit tests", "Test opening function"]
-}}
-→ System saves to main_test.go, compiles → Done
+Task: "Add error logging to auth.go"
+→ Read auth.go first to understand structure
+→ Use modify_file to add logging
+→ Done (1 file modified)
 
-=== ERROR RECOVERY ===
+Task: "Fix compilation error in validator.go"
+→ Read error message
+→ Use generate_code with error context to create fixed version
+→ Done (1 file fixed)
 
-If compile fails (auto-injected compile returns errors):
-1. Read error message carefully
-2. Call generate_code again with error feedback
-3. System auto-saves and auto-compiles again
-4. Repeat until success
+=== ERROR HANDLING ===
 
-You only fix errors by calling generate_code with better instructions.
+Compilation errors (from auto-compile):
+1. Read error carefully - what's actually wrong?
+2. Call generate_code again with error as context
+3. System re-saves and re-compiles
+4. Repeat if needed (up to system limit)
 
-=== SECURITY & QUALITY ===
+Fix by providing better instructions to generate_code, not by manually editing.
 
-**Security Checks:**
-- Never log credentials
-- Validate user inputs
-- Check for SQL injection risks
-- Scan for vulnerabilities
+=== QUALITY STANDARDS ===
 
-**Quality Standards:**
-- Match existing code style
-- Include error handling
-- Add clear comments
-- Keep functions focused
-- Test coverage 80%+
+Code you generate should:
+- Match project conventions (read existing code first if unsure)
+- Handle errors appropriately
+- Include necessary imports
+- Be well-structured and readable
+- Work on first compile (test requirements in your mind before generating)
 
-=== AVAILABLE TOOLS ===
-
-**Code Generation:**
-- generate_code: Get code from specialist model
-
-**File Operations:**
-- read_file, list_files, search_files
-- modify_file, append_to_file (for existing files)
-
-**Validation:**
-- compile, run_tests
-- format_code, lint_code
-- security_scan, complexity_check
-
-**Code Intelligence:**
-- parse_file, find_symbol, find_patterns
-- analyze_structure, analyze_imports
-- dependency_graph, find_related
-
-**Context Management:**
-- search_artifacts, retrieve_context
-- store_artifact, leave_note
-
-Remember: You orchestrate. The code model generates. The system saves.`
+Remember: You orchestrate. The code model generates. The system handles saving and compiling.`
 
 	return prompt
 }
@@ -401,6 +329,26 @@ func (a *CodeAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) 
 			prompt.WriteString(fmt.Sprintf("- %s: %v\n", key, value))
 		}
 		prompt.WriteString("\n")
+
+		// SPECIAL HANDLING: If this is a test file creation task with dependency files
+		if fileType, ok := task.Input["file_type"].(string); ok && fileType == "test" {
+			if depFiles, ok := task.Input["dependency_files"].([]string); ok && len(depFiles) > 0 {
+				prompt.WriteString("⚠️  IMPORTANT: This is a TEST FILE task.\n")
+				prompt.WriteString("Files created by previous task:\n")
+				for _, file := range depFiles {
+					prompt.WriteString(fmt.Sprintf("  - %s\n", file))
+				}
+				prompt.WriteString("\n→ Read those files using read_file to understand what to test\n")
+				prompt.WriteString("→ Generate tests that actually test the real code functionality\n")
+				prompt.WriteString("→ Do NOT generate generic template tests\n\n")
+			} else if projectPath, ok := task.Input["project_path"].(string); ok {
+				// Fallback: no dependency files provided, need to discover
+				prompt.WriteString("⚠️  IMPORTANT: This is a TEST FILE task.\n")
+				prompt.WriteString(fmt.Sprintf("→ First: Use list_files to find source files in %s\n", projectPath))
+				prompt.WriteString("→ Then: Read those files using read_file\n")
+				prompt.WriteString("→ Finally: Generate appropriate tests\n\n")
+			}
+		}
 	}
 
 	// Include relevant context artifacts if available
