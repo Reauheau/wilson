@@ -7,6 +7,7 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 ## Key Features
 
 - **Async Dual-Model Architecture** - Small chat model (always responsive) + large worker models (on-demand)
+- **Atomic Task Execution** - Each task = 1 file, dependency injection, context flows between tasks
 - **Multi-Agent Collaboration** - Research, Code, Test, and Review agents work together autonomously
 - **Resource Efficient** - Kill-after-task strategy: 4GB idle, 12GB active, back to 4GB when done
 - **Non-Blocking** - Chat with Wilson while background tasks execute
@@ -39,10 +40,21 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
            │
            ▼
 ┌──────────────────────────────────────────────────────┐
+│               MANAGER AGENT                          │
+│  Task decomposition & orchestration                  │
+│  - Breaks complex tasks → atomic subtasks            │
+│  - Extracts project path from user request           │
+│  - Injects dependency artifacts (file context)       │
+│  Atomic principle: 1 file per task                   │
+└──────────┬───────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────┐
 │              WORKER MANAGER                          │
 │  Strategy: Spawn on-demand, kill after completion   │
 │  Max concurrent: 2 workers (configurable)           │
 │  Model lifecycle: Load → Execute → Unload           │
+│  Context: Input map (project_path, dependency_files) │
 └──────┬──────────────┬──────────────┬─────────────────┘
        │              │              │
        ▼              ▼              ▼
@@ -52,14 +64,14 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 │(goroutine) │ │(goroutine) │ │(goroutine) │
 │            │ │            │ │            │
 │ Model:     │ │ Model:     │ │ Model:     │
-│ qwen2.5-   │ │ qwen2.5    │ │ qwen2.5    │
-│ coder:14b  │ │ 7b         │ │ 7b         │
-│ (~8GB)     │ │ (~4GB)     │ │ (~4GB)     │
+│ qwen2.5-   │ │ qwen2.5    │ │ qwen2.5-   │
+│ coder:14b  │ │ 7b         │ │ coder:14b  │
+│ (~8GB)     │ │ (~4GB)     │ │ (~8GB)     │
 │            │ │            │ │            │
-│ Tools:     │ │ Tools:     │ │ Tools:     │
-│ - read     │ │ - search   │ │ - run      │
-│ - write    │ │ - fetch    │ │ - test     │
-│ - compile  │ │ - analyze  │ │ - report   │
+│ Task:      │ │ Task:      │ │ Task:      │
+│ 1 file     │ │ Research   │ │ 1 test     │
+│ Exit after │ │ Analyze    │ │ file       │
+│ compile ✓  │ │ Summarize  │ │ Read deps  │
 │            │ │            │ │            │
 │ Life:      │ │ Life:      │ │ Life:      │
 │ EPHEMERAL  │ │ EPHEMERAL  │ │ EPHEMERAL  │
@@ -72,10 +84,10 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
          │   CONTEXT STORE        │
          │   (SQLite DB)          │
          │                        │
-         │ - Tasks + Status       │
+         │ - Tasks + Input map    │
          │ - Artifacts            │
+         │ - Dependency tracking  │
          │ - Agent Notes          │
-         │ - Reviews              │
          └────────────────────────┘
 ```
 
