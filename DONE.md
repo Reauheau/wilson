@@ -296,5 +296,49 @@ Code Agent (qwen2.5-coder:14b) → ephemeral, spawns per task
 
 ---
 
-**Last Updated:** October 20, 2025
+## Atomic Task Infrastructure - Oct 22, 2025
+
+**Problem:** Tasks generated files multiple times, no context between dependent tasks, test files were generic templates.
+
+**Solution:** Atomic task principle + database persistence + dependency artifact injection.
+
+**Implementation (4 components):**
+- **Database Persistence:** Added `input` TEXT column to tasks table, updated all CRUD operations in queue.go to marshal/unmarshal Input map, migration for existing databases
+- **Path Extraction:** `extractProjectPath()` parses user requests ("in ~/path"), injects `project_path` into all subtask Input maps
+- **Atomic Task Principle:** Tasks exit immediately after successful compilation (no retry loops), each task = 1 file or 1 change, compile errors don't block workflow
+- **Dependency Injection:** `injectDependencyArtifacts()` extracts filenames from completed tasks, injects `dependency_files` into dependent task Input, agents receive file list without needing LLM discovery
+
+**Architecture:**
+```
+User: "Create X with tests in ~/project"
+  ↓
+Manager: extractProjectPath() → "~/project"
+  ↓
+Task 1 (Code): Input{project_path: ~/project} → creates main.go
+  ↓
+Manager: injectDependencyArtifacts() → finds "main.go"
+  ↓
+Task 2 (Code): Input{project_path: ~/project, dependency_files: [main.go]} → reads main.go → generates real tests
+```
+
+**Key Features:**
+- Generic solution (no hardcoded filenames/paths/languages)
+- Files created in correct directory from user request
+- Test files contain actual tests for real code (not templates)
+- Language-aware defaults (main.go for Go, main.py for Python)
+- Context flows without LLM calls
+
+**Files Changed:** agent/queue.go (Input CRUD), agent/manager_agent.go (path extraction + injection), agent/code_agent.go (test file prompt), agent/agent_executor.go (removed hardcoded retry logic), context/store.go (schema + migration)
+
+**Tests:** End-to-end verified - multi-file workflows create contextually accurate code
+
+**Key Learnings:**
+- Database persistence of Input map enables stateless task execution
+- Artifact injection >> LLM discovery (faster, more reliable)
+- Smart defaults acceptable when language-aware and fallback-only
+- Atomic tasks + Manager orchestration >> monolithic code generation
+
+---
+
+**Last Updated:** October 22, 2025
 **See Also:** TODO.md (active work), ENDGAME.md (vision), SESSION_INSTRUCTIONS.md (maintenance guidelines)

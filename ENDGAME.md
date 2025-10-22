@@ -168,25 +168,25 @@ User: "What's 2+2?" → IntentChat → Wilson answers immediately (~50ms) while 
 
 ### 2. Manager Agent - Task Orchestrator
 
-**Role:** Task decomposition, assignment, progress tracking, quality assurance
+**Role:** Task decomposition, assignment, progress tracking, dependency injection
 
-**Model:** qwen2.5:7b (planning) or larger models for complex decomposition
+**Model:** qwen2.5:7b (chat) for decomposition
 
 **Execution Mode:** **On-Demand** (Phase 5 Async)
 - Spawned when Wilson delegates complex tasks
-- Uses chat model (llama3) or specialized planning model
-- Creates subtasks and assigns to workers
+- Creates subtasks with dependency tracking
+- Injects artifacts from completed tasks into dependent tasks
 - Workers execute asynchronously in background
 - Manager monitors via task queue (SQLite)
 
 **Responsibilities:**
-- Break complex tasks into subtasks
-- Assign subtasks to appropriate specialist agents via Worker Manager
-- Track task dependencies
+- Break complex tasks into atomic subtasks (1 file/change per task)
+- Assign subtasks to appropriate specialist agents
+- Track task dependencies and execution order
+- **Inject context from dependencies** - pass created files to dependent tasks
 - Monitor progress and quality
 - Handle blockers and re-assignments
 - Ensure Definition of Done is met
-- **Spawn workers asynchronously** - doesn't wait for completion
 
 **Tools:**
 - `create_subtask(parent_task, description, assignee, dependencies, DoD)`
@@ -194,6 +194,13 @@ User: "What's 2+2?" → IntentChat → Wilson answers immediately (~50ms) while 
 - `get_task_status(task_id)` - Query task queue
 - `mark_task_complete(task_id)`
 - `request_review(task_id, reviewer_agent)` - Spawns review worker
+
+**Atomic Task Principle:**
+- Each subtask generates ONE file or ONE code change
+- Tasks exit immediately after successful completion
+- Context flows via Input map (project_path, dependency_files, etc.)
+- No compile error retries - mark complete and continue
+- Manager coordinates multi-file workflows
 
 **Example Task Breakdown:**
 ```
@@ -269,11 +276,12 @@ Subtasks:
 - Concurrent limit: Configurable (default: 2 max workers)
 
 **Responsibilities:**
-- Generate code based on specifications
-- Modify existing code
+- Generate code based on specifications (ONE file per task)
+- Read dependency files before generating tests
+- Modify existing code with atomic changes
 - Follow coding standards
 - Add documentation and comments
-- Create necessary files/directories
+- Auto-compile after generation (via agent_executor)
 
 **Advanced Capabilities (4-Phase Upgrade Complete):**
 - **Phase 1: Code Intelligence** - AST parsing, symbol search, structure analysis, import management
@@ -309,7 +317,7 @@ Subtasks:
 
 **Role:** Test code, validate functionality, report issues
 
-**Model:** qwen2.5:7b (logical reasoning, test generation)
+**Model:** qwen2.5-coder:14b (better at structured JSON output than chat models)
 
 **Responsibilities:**
 - Write and run tests
