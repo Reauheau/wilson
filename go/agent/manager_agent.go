@@ -1158,6 +1158,12 @@ func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskC
 func (m *ManagerAgent) StartFeedbackProcessing(ctx context.Context) {
 	bus := GetFeedbackBus()
 
+	// Set database for persistence
+	if m.db != nil {
+		bus.SetDatabase(m.db)
+		fmt.Println("[ManagerAgent] Feedback persistence enabled")
+	}
+
 	// Register handlers
 	bus.RegisterHandler(FeedbackTypeDependencyNeeded, m.handleDependencyRequest)
 	bus.RegisterHandler(FeedbackTypeRetryRequest, m.handleRetryRequest)

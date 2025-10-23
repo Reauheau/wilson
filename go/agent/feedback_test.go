@@ -189,3 +189,110 @@ func TestManagerAgent_SmartRetryDecision(t *testing.T) {
 		t.Error("Should not retry after max attempts exceeded")
 	}
 }
+
+// TestFeedbackBus_SetDatabase tests setting database on feedback bus
+func TestFeedbackBus_SetDatabase(t *testing.T) {
+	bus := &FeedbackBus{
+		feedbackChan: make(chan *AgentFeedback, 10),
+		handlers:     make(map[FeedbackType]FeedbackHandler),
+	}
+
+	// Should start with nil DB
+	if bus.db != nil {
+		t.Error("Expected db to be nil initially")
+	}
+
+	// Mock database (just for testing the setter)
+	bus.SetDatabase(nil)
+
+	// Verify it doesn't panic with nil
+	if bus.db != nil {
+		t.Error("Expected db to remain nil")
+	}
+}
+
+// TestFeedbackBus_PersistFeedback_NilDB tests graceful handling when DB is nil
+func TestFeedbackBus_PersistFeedback_NilDB(t *testing.T) {
+	bus := &FeedbackBus{
+		feedbackChan: make(chan *AgentFeedback, 10),
+		handlers:     make(map[FeedbackType]FeedbackHandler),
+		db:           nil, // No database
+	}
+
+	feedback := &AgentFeedback{
+		TaskID:       "TASK-001",
+		AgentName:    "TestAgent",
+		FeedbackType: FeedbackTypeDependencyNeeded,
+		Severity:     FeedbackSeverityCritical,
+		CreatedAt:    time.Now(),
+	}
+
+	// Should not error when DB is nil
+	err := bus.persistFeedback(feedback)
+	if err != nil {
+		t.Errorf("persistFeedback() with nil DB should not error, got: %v", err)
+	}
+}
+
+// TestFeedbackBus_GetFeedbackForTask_NilDB tests error handling when DB is nil
+func TestFeedbackBus_GetFeedbackForTask_NilDB(t *testing.T) {
+	bus := &FeedbackBus{
+		feedbackChan: make(chan *AgentFeedback, 10),
+		handlers:     make(map[FeedbackType]FeedbackHandler),
+		db:           nil,
+	}
+
+	_, err := bus.GetFeedbackForTask("TASK-001")
+	if err == nil {
+		t.Error("GetFeedbackForTask() with nil DB should return error")
+	}
+
+	expectedMsg := "database not configured"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+// TestFeedbackBus_GetFeedbackStats_NilDB tests error handling when DB is nil
+func TestFeedbackBus_GetFeedbackStats_NilDB(t *testing.T) {
+	bus := &FeedbackBus{
+		feedbackChan: make(chan *AgentFeedback, 10),
+		handlers:     make(map[FeedbackType]FeedbackHandler),
+		db:           nil,
+	}
+
+	_, err := bus.GetFeedbackStats(time.Now())
+	if err == nil {
+		t.Error("GetFeedbackStats() with nil DB should return error")
+	}
+
+	expectedMsg := "database not configured"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+// TestFeedbackStats_Structure tests FeedbackStats struct
+func TestFeedbackStats_Structure(t *testing.T) {
+	stats := &FeedbackStats{
+		TotalFeedback:     10,
+		ProcessedCount:    8,
+		ErrorCount:        2,
+		AverageProcessing: 500 * time.Millisecond,
+		ByType:            make(map[string]int),
+		BySeverity:        make(map[string]int),
+	}
+
+	stats.ByType["dependency_needed"] = 5
+	stats.ByType["success"] = 5
+	stats.BySeverity["critical"] = 3
+	stats.BySeverity["warning"] = 7
+
+	if stats.TotalFeedback != 10 {
+		t.Errorf("Expected TotalFeedback 10, got %d", stats.TotalFeedback)
+	}
+
+	if stats.ByType["dependency_needed"] != 5 {
+		t.Errorf("Expected 5 dependency_needed, got %d", stats.ByType["dependency_needed"])
+	}
+}

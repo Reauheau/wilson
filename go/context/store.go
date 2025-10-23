@@ -153,6 +153,23 @@ func (s *Store) initSchema() error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- Agent Feedback Persistence (Feedback Loop Phase 2)
+	CREATE TABLE IF NOT EXISTS agent_feedback (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id TEXT NOT NULL,
+		agent_name TEXT NOT NULL,
+		feedback_type TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		message TEXT,
+		context TEXT,  -- JSON serialized Context map
+		suggestion TEXT,
+		task_context TEXT,  -- JSON serialized TaskContext (optional, can be large)
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		processed_at TIMESTAMP,
+		handler_result TEXT,
+		handler_error TEXT
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 	CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
 	CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
@@ -163,6 +180,10 @@ func (s *Store) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_agent_comms_to ON agent_communications(to_agent);
 	CREATE INDEX IF NOT EXISTS idx_agent_comms_from ON agent_communications(from_agent);
 	CREATE INDEX IF NOT EXISTS idx_agent_comms_type ON agent_communications(message_type);
+	CREATE INDEX IF NOT EXISTS idx_feedback_task_id ON agent_feedback(task_id);
+	CREATE INDEX IF NOT EXISTS idx_feedback_type ON agent_feedback(feedback_type);
+	CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback(created_at);
+	CREATE INDEX IF NOT EXISTS idx_feedback_agent ON agent_feedback(agent_name);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
