@@ -73,6 +73,15 @@ func (a *ReviewAgent) Execute(ctx context.Context, task *Task) (*Result, error) 
 		Agent:  a.name,
 	}
 
+	// ✅ PRECONDITION CHECK - Validate prerequisites before execution
+	if err := a.checkPreconditions(ctx, task); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Precondition failed: %v", err)
+		a.RecordError("precondition_failed", "precondition", err.Error(), "", 0,
+			"Ensure code artifacts are available for review")
+		return result, err
+	}
+
 	// Get current context for artifacts to review
 	currentCtx, err := a.GetContext()
 	if err != nil {
@@ -115,6 +124,18 @@ func (a *ReviewAgent) Execute(ctx context.Context, task *Task) (*Result, error) 
 	}
 
 	return result, nil
+}
+
+// checkPreconditions validates prerequisites with TaskContext awareness
+func (a *ReviewAgent) checkPreconditions(ctx context.Context, task *Task) error {
+	// Check: Has code to review in DependencyFiles
+	if a.currentContext != nil && len(a.currentContext.DependencyFiles) == 0 {
+		return a.RequestDependency(ctx,
+			"Create code to review",
+			ManagedTaskTypeCode,
+			"No code artifacts found to review")
+	}
+	return nil
 }
 
 func (a *ReviewAgent) buildSystemPrompt() string {
