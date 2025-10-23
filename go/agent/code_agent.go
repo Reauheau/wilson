@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	contextpkg "wilson/context"
@@ -99,6 +100,15 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	result := &Result{
 		TaskID: task.ID,
 		Agent:  a.name,
+	}
+
+	// ✅ PRECONDITION CHECK - Validate prerequisites before execution
+	if err := a.checkPreconditions(ctx, task); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Precondition failed: %v", err)
+		a.RecordError("precondition_failed", "precondition", err.Error(), "", 0,
+			"Ensure prerequisites are met")
+		return result, err
 	}
 
 	// Get current context for background
@@ -214,6 +224,52 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+// checkPreconditions validates prerequisites with TaskContext awareness
+func (a *CodeAgent) checkPreconditions(ctx context.Context, task *Task) error {
+	// Check 1: Target directory exists
+	projectPath := "."
+
+	// ✅ Use TaskContext if available (better than parsing task.Input)
+	if a.currentContext != nil && a.currentContext.ProjectPath != "" {
+		projectPath = a.currentContext.ProjectPath
+	} else if pathVal, ok := task.Input["project_path"]; ok {
+		if pathStr, ok := pathVal.(string); ok && pathStr != "" {
+			projectPath = pathStr
+		}
+	}
+
+	// If not current directory, verify it exists
+	if projectPath != "." {
+		if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+			return a.RequestDependency(ctx,
+				fmt.Sprintf("Create directory %s", projectPath),
+				ManagedTaskTypeCode,
+				fmt.Sprintf("Target directory does not exist: %s", projectPath))
+		}
+	}
+
+	// Check 2: For "fix" tasks, verify file exists
+	if fixMode, ok := task.Input["fix_mode"].(bool); ok && fixMode {
+		if targetFile, ok := task.Input["target_file"].(string); ok {
+			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+				// Don't request dependency for fix tasks on missing files - this is a real error
+				return fmt.Errorf("cannot fix non-existent file: %s", targetFile)
+			}
+		}
+	}
+
+	// Check 3: For tasks with compile errors, verify the file being fixed exists
+	if compileError, ok := task.Input["compile_error"].(string); ok && compileError != "" {
+		if targetFile, ok := task.Input["target_file"].(string); ok {
+			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+				return fmt.Errorf("cannot fix compile errors in non-existent file: %s", targetFile)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (a *CodeAgent) buildSystemPrompt() string {

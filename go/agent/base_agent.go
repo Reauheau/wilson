@@ -182,6 +182,7 @@ func (a *BaseAgent) SendFeedback(ctx context.Context, feedbackType FeedbackType,
 }
 
 // RequestDependency requests a missing dependency with error context
+// This method sends feedback to create a dependency task and returns an error to block the current task
 func (a *BaseAgent) RequestDependency(ctx context.Context, description string,
 	taskType ManagedTaskType, reason string) error {
 
@@ -200,13 +201,23 @@ func (a *BaseAgent) RequestDependency(ctx context.Context, description string,
 	errorInfo["dependency_type"] = string(taskType)
 	errorInfo["reason"] = reason
 
-	return a.SendFeedback(ctx,
+	// Send feedback to manager
+	feedbackErr := a.SendFeedback(ctx,
 		FeedbackTypeDependencyNeeded,
 		FeedbackSeverityCritical,
 		fmt.Sprintf("Cannot proceed: %s", reason),
 		errorInfo,
 		"Create and complete the missing dependency before retrying this task",
 	)
+
+	// If feedback failed to send, return that error
+	if feedbackErr != nil {
+		return feedbackErr
+	}
+
+	// Always return an error to block the current task
+	// The task will be unblocked after the dependency completes
+	return fmt.Errorf("dependency needed: %s", reason)
 }
 
 // RecordError records an error in TaskContext for learning
