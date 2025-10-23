@@ -138,3 +138,63 @@ All completed work documented in **DONE.md**:
 - ✅ Chatbot optimization (intent classification, async delegation)
 
 **Full implementation history:** See DONE.md
+
+---
+
+## Future Improvements (Deferred)
+
+### Additional Feedback Handlers
+**Priority:** Low (types already defined, add handlers when needed)
+
+The following feedback types are already defined in the codebase but don't have handlers yet:
+- `FeedbackTypeBlocker` - Unrecoverable errors, escalate to user immediately
+- `FeedbackTypeContextNeeded` - Request specific files (mostly covered by auto context loading)
+- `FeedbackTypeSuccess` - Positive signals for learning and pattern recognition
+- `FeedbackTypeTimeout` - Task taking too long (needs timeout mechanism first)
+
+**Why deferred:** Current automatic context loading covers most use cases. Wait for patterns to emerge before adding handlers.
+
+**Estimated Effort:** 2-3 hours when needed
+
+### Parallel Dependency Execution
+**Priority:** Medium-High (2-3x speedup for independent tasks)
+**Estimated Effort:** 4 hours
+
+**Problem:** Dependencies execute sequentially even when independent.
+
+**Current behavior:**
+```
+TASK-001: Run tests (blocked)
+  ↓ waits for...
+TASK-002: Create user_test.go (10s)
+  ↓ waits for...
+TASK-003: Create handler_test.go (10s)
+Total: 20 seconds
+```
+
+**Improved behavior:**
+```
+TASK-001: Run tests (blocked)
+  ↓ waits for BOTH...
+TASK-002: Create user_test.go (10s) ──┐
+TASK-003: Create handler_test.go (10s) ┴─ Parallel
+Total: 10 seconds (2x faster!)
+```
+
+**Implementation approach:**
+- Detect independent tasks (no shared dependencies)
+- Execute in parallel using goroutines with sync.WaitGroup
+- Maintain dependency graph for ordering
+- Limit concurrency (max 3-5 parallel tasks)
+
+**Benefits:**
+- 2-3x faster for multi-file workflows
+- Better resource utilization
+- Scales with available CPU cores
+
+**Risks:**
+- More complex coordination logic
+- Harder to debug when tasks fail
+- Race conditions if dependencies misidentified
+
+**Recommendation:** Implement after production validation shows it's a real bottleneck.
