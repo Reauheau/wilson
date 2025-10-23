@@ -968,27 +968,41 @@ func (m *ManagerAgent) inferTaskType(request string) ManagedTaskType {
 }
 
 // extractProjectPath extracts the target directory from user request
-// Looks for patterns like "in ~/path" or "in /absolute/path"
+// Looks for patterns like "in ~/path", "to ~/path", or "in /absolute/path"
 func extractProjectPath(request string) string {
-	// Look for " in " or start with "in "
 	lowerReq := strings.ToLower(request)
 
-	// Find "in " pattern
-	idx := strings.Index(lowerReq, " in ")
-	if idx == -1 && strings.HasPrefix(lowerReq, "in ") {
-		idx = -1 // Will become 0 after +4
+	// Try multiple patterns: "in ", "to ", "at "
+	patterns := []string{" in ", " to ", " at "}
+	idx := -2 // -2 means not found, -1 is valid (start of string)
+	patternLen := 0
+
+	for _, pattern := range patterns {
+		i := strings.Index(lowerReq, pattern)
+		if i != -1 {
+			idx = i
+			patternLen = len(pattern)
+			break
+		}
+		// Check if starts with pattern (without leading space)
+		patternWithoutSpace := pattern[1:]
+		if strings.HasPrefix(lowerReq, patternWithoutSpace) {
+			idx = 0
+			patternLen = len(patternWithoutSpace)
+			break
+		}
 	}
 
-	if idx >= -1 {
+	if idx >= 0 {
 		// Calculate start position
-		pathStart := idx + 4 // Skip " in " or "in "
+		pathStart := idx + patternLen
 		if pathStart >= len(request) {
 			return "."
 		}
 
 		remaining := request[pathStart:]
 
-		// Find end of path (space before a verb like "create", or end of string)
+		// Find end of path (space before "and" or a verb like "create", or end of string)
 		pathEnd := len(remaining)
 		words := strings.Fields(remaining)
 		if len(words) > 0 {
