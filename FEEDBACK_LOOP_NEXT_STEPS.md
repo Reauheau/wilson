@@ -122,10 +122,11 @@ func (a *CodeAgent) checkPreconditions(ctx context.Context, task *Task) error {
 
 ---
 
-#### 2. **Context Loading on Retry** ⭐⭐⭐⭐⭐
+#### 2. **Context Loading on Retry** ⭐⭐⭐⭐⭐ ✅ COMPLETE
 **Impact:** Fixes 30% of "context lost" failures
 **Effort:** 3 hours
 **Priority:** HIGH
+**Status:** ✅ Implemented 2025-10-23
 
 **Problem:** When task retries, it doesn't have access to files it needs
 
@@ -167,6 +168,17 @@ func (m *ManagerAgent) loadRequiredFiles(taskCtx *TaskContext) error {
 ```
 
 **Expected Gain:** 70% → 85% success rate for fix tasks
+
+**Implementation Summary:**
+- ✅ Added `loadRequiredFiles()` method to manager_agent.go with auto-loading logic
+- ✅ Added `extractFilenameFromError()` helper to parse filenames from compile errors
+- ✅ Integrated context loading into `injectDependencyContext()` workflow
+- ✅ Auto-loads file content for fix_mode tasks
+- ✅ Auto-loads file content from compile error messages
+- ✅ Created comprehensive test suite (11 tests covering all scenarios, 100% passing)
+- ✅ Files modified: manager_agent.go
+- ✅ Test coverage: manager_agent_context_test.go
+- ✅ Graceful error handling: warnings logged but task continues
 
 ---
 

@@ -1050,6 +1050,63 @@ func extractCoreDescription(request string) string {
 
 // injectDependencyContext loads artifacts from dependent tasks into TaskContext
 // This replaces the old injectDependencyArtifacts method
+// loadRequiredFiles auto-loads file content for tasks that need it
+// This prevents "context lost" failures when retrying tasks
+func (m *ManagerAgent) loadRequiredFiles(taskCtx *TaskContext) error {
+	// For fix tasks, auto-load the file being fixed
+	if fixMode, ok := taskCtx.Input["fix_mode"].(bool); ok && fixMode {
+		if targetFile, ok := taskCtx.Input["target_file"].(string); ok {
+			content, err := os.ReadFile(targetFile)
+			if err == nil {
+				taskCtx.Input["file_content"] = string(content)
+				fmt.Printf("[ManagerAgent] Loaded file content for fix task: %s\n", targetFile)
+			} else {
+				fmt.Printf("[ManagerAgent] Warning: Could not load file for fix task: %s (%v)\n", targetFile, err)
+			}
+		}
+	}
+
+	// For tasks with compile errors, load the problematic file
+	if compileError, ok := taskCtx.Input["compile_error"].(string); ok && compileError != "" {
+		// Extract filename from error
+		filename := extractFilenameFromError(compileError)
+		if filename != "" {
+			content, err := os.ReadFile(filename)
+			if err == nil {
+				// Only set if not already set by fix_mode above
+				if _, exists := taskCtx.Input["file_content"]; !exists {
+					taskCtx.Input["file_content"] = string(content)
+					fmt.Printf("[ManagerAgent] Loaded file content from compile error: %s\n", filename)
+				}
+			} else {
+				fmt.Printf("[ManagerAgent] Warning: Could not load file from compile error: %s (%v)\n", filename, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractFilenameFromError extracts the filename from a Go compile error message
+// Go error format: "path/file.go:10:5: error message"
+func extractFilenameFromError(errorMsg string) string {
+	lines := strings.Split(errorMsg, "\n")
+	for _, line := range lines {
+		// Look for lines with .go: pattern
+		if strings.Contains(line, ".go:") {
+			parts := strings.Split(line, ".go:")
+			if len(parts) > 0 {
+				filename := strings.TrimSpace(parts[0]) + ".go"
+				// Verify it's a valid path (not too short, not a URL, etc.)
+				if len(filename) > 3 && !strings.HasPrefix(filename, "http") {
+					return filename
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskContext) error {
 	// If no dependencies, nothing to inject
 	if len(task.DependsOn) == 0 {
@@ -1086,6 +1143,12 @@ func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskC
 	if len(taskCtx.DependencyFiles) > 0 {
 		fmt.Printf("[ManagerAgent] Injected %d dependency files into task %s context\n",
 			len(taskCtx.DependencyFiles), task.TaskKey)
+	}
+
+	// Load required files for fix/retry scenarios
+	if err := m.loadRequiredFiles(taskCtx); err != nil {
+		fmt.Printf("[ManagerAgent] Warning: Failed to load required files: %v\n", err)
+		// Don't fail the task - just log the warning
 	}
 
 	return nil
