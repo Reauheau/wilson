@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  # Run tests on push to master
+  push:
+    branches:
+      - master
+  # Run tests on PRs targeting master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        working-directory: ./go
+        run: go mod download
+
+      - name: Run independent unit tests
+        working-directory: ./go
+        run: |
+          # Run specific independent tests that don't require Ollama/external dependencies
+
+          echo "🧪 Running independent unit tests..."
+
+          # Agent package - pure logic tests that run without external dependencies
+          go test -v -race -timeout 30s \
+            -run="TestExtractFilenameFromError|TestLoadRequiredFiles|TestCodeAgent_checkPreconditions" \
+            ./agent/
+
+          # Note: Skipping tests that require external dependencies:
+          # - ./tests/unit/... (requires Ollama and tool framework setup)
+          # - ./tests/integration/... (requires full agent setup with LLMs)
+          # - ./tests/e2e_feedback/... (requires Ollama and full system)
+          # - ./context/... (may require database initialization)
+          # - ./llm/... (requires active Ollama connection)
+          # - Other agent tests that depend on LLM interactions
+
+          echo "✅ All independent unit tests passed!"
+
+
+      - name: Build Wilson
+        working-directory: ./go
+        run: go build -o wilson main.go
+
+      - name: Verify build
+        working-directory: ./go
+        run: |
+          if [ ! -f wilson ]; then
+            echo "Build failed - wilson binary not found"
+            exit 1
+          fi
+          echo "Build successful!"
