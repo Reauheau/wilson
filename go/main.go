@@ -364,6 +364,9 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 		managerAgent.SetLLMManager(llmMgr)
 		managerAgent.SetRegistry(agentRegistry)
 		coordinator.SetManager(managerAgent)
+
+		// ✅ START FEEDBACK PROCESSING (Phase 1)
+		managerAgent.StartFeedbackProcessing(context.Background())
 	}
 
 	// Configure max concurrent workers (default: 2 for 16GB RAM)

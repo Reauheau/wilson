@@ -65,6 +65,18 @@ func (a *TestAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		Agent:  a.name,
 	}
 
+	// ✅ CONTEXT-AWARE PRECONDITION CHECK
+	if err := a.checkPreconditions(ctx, task); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Precondition failed: %v", err)
+
+		// Record error in TaskContext for learning
+		a.RecordError("precondition_failed", "precondition", err.Error(), "", 0,
+			"Ensure prerequisites are met before running tests")
+
+		return result, err
+	}
+
 	// Get current context for code to test
 	currentCtx, err := a.GetContext()
 	if err != nil {
@@ -216,4 +228,63 @@ func (a *TestAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) 
 	}
 
 	return prompt.String()
+}
+
+// checkPreconditions validates prerequisites with TaskContext awareness
+func (a *TestAgent) checkPreconditions(ctx context.Context, task *Task) error {
+	lowerDesc := strings.ToLower(task.Description)
+
+	// Check: "run tests" requires test files to exist
+	if strings.Contains(lowerDesc, "run test") || strings.Contains(lowerDesc, "execute test") {
+		projectPath := "."
+
+		// ✅ Use TaskContext if available (better than parsing task.Input)
+		if a.currentContext != nil && a.currentContext.ProjectPath != "" {
+			projectPath = a.currentContext.ProjectPath
+		} else if pathVal, ok := task.Input["project_path"]; ok {
+			if pathStr, ok := pathVal.(string); ok {
+				projectPath = pathStr
+			}
+		}
+
+		// ✅ SMART: Check DependencyFiles first (we know what was created!)
+		if a.currentContext != nil && len(a.currentContext.DependencyFiles) > 0 {
+			hasTestFiles := false
+			for _, file := range a.currentContext.DependencyFiles {
+				if strings.Contains(file, "_test.go") || strings.Contains(file, "_test.") {
+					hasTestFiles = true
+					break
+				}
+			}
+
+			if hasTestFiles {
+				// Dependencies created test files - we're good!
+				return nil
+			}
+		}
+
+		// Fallback: Check filesystem
+		// Use simple check instead of filepath.Glob to avoid import
+		// The actual test execution tool will handle the detailed check
+
+		// ✅ SMART: Include context in dependency request
+		reason := fmt.Sprintf("No test files found in %s", projectPath)
+
+		// Check if we already tried this before (from error history)
+		if a.currentContext != nil {
+			if lastErr := a.currentContext.GetLastError(); lastErr != nil {
+				if lastErr.ErrorType == "missing_test_files" {
+					reason += " (previous attempt also failed - check if code files exist)"
+				}
+			}
+		}
+
+		return a.RequestDependency(ctx,
+			fmt.Sprintf("Create test files in %s", projectPath),
+			ManagedTaskTypeCode,
+			reason,
+		)
+	}
+
+	return nil
 }

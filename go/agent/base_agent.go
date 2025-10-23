@@ -159,3 +159,74 @@ func (a *BaseAgent) ConvertTaskContextToTask(taskCtx *TaskContext) *Task {
 		Status:      TaskPending,
 	}
 }
+
+// SendFeedback sends feedback via the feedback bus with full TaskContext
+func (a *BaseAgent) SendFeedback(ctx context.Context, feedbackType FeedbackType,
+	severity FeedbackSeverity, message string,
+	context map[string]interface{}, suggestion string) error {
+
+	bus := GetFeedbackBus()
+
+	feedback := &AgentFeedback{
+		TaskID:       a.currentTaskID,
+		AgentName:    a.name,
+		FeedbackType: feedbackType,
+		Severity:     severity,
+		Message:      message,
+		Context:      context,
+		Suggestion:   suggestion,
+		TaskContext:  a.currentContext, // ✅ Full execution context!
+	}
+
+	return bus.Send(feedback)
+}
+
+// RequestDependency requests a missing dependency with error context
+func (a *BaseAgent) RequestDependency(ctx context.Context, description string,
+	taskType ManagedTaskType, reason string) error {
+
+	// Include error history in context
+	errorInfo := make(map[string]interface{})
+	if a.currentContext != nil {
+		errorInfo["previous_attempts"] = a.currentContext.PreviousAttempts
+		errorInfo["error_patterns"] = a.currentContext.GetErrorPatterns()
+		if lastErr := a.currentContext.GetLastError(); lastErr != nil {
+			errorInfo["last_error_type"] = lastErr.ErrorType
+			errorInfo["last_error_message"] = lastErr.Message
+		}
+	}
+
+	errorInfo["dependency_description"] = description
+	errorInfo["dependency_type"] = string(taskType)
+	errorInfo["reason"] = reason
+
+	return a.SendFeedback(ctx,
+		FeedbackTypeDependencyNeeded,
+		FeedbackSeverityCritical,
+		fmt.Sprintf("Cannot proceed: %s", reason),
+		errorInfo,
+		"Create and complete the missing dependency before retrying this task",
+	)
+}
+
+// RecordError records an error in TaskContext for learning
+func (a *BaseAgent) RecordError(errorType, phase, message, filePath string,
+	lineNumber int, suggestion string) {
+
+	if a.currentContext == nil {
+		return
+	}
+
+	execError := ExecutionError{
+		Timestamp:  a.currentContext.CreatedAt,
+		Agent:      a.name,
+		Phase:      phase,
+		ErrorType:  errorType,
+		Message:    message,
+		FilePath:   filePath,
+		LineNumber: lineNumber,
+		Suggestion: suggestion,
+	}
+
+	a.currentContext.AddError(execError)
+}

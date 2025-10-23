@@ -1090,3 +1090,190 @@ func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskC
 
 	return nil
 }
+
+// StartFeedbackProcessing registers handlers and starts the feedback bus
+func (m *ManagerAgent) StartFeedbackProcessing(ctx context.Context) {
+	bus := GetFeedbackBus()
+
+	// Register handlers
+	bus.RegisterHandler(FeedbackTypeDependencyNeeded, m.handleDependencyRequest)
+	bus.RegisterHandler(FeedbackTypeRetryRequest, m.handleRetryRequest)
+
+	// Start processing
+	bus.Start(ctx)
+
+	fmt.Println("[ManagerAgent] Feedback processing started")
+}
+
+// handleDependencyRequest creates missing dependency task using TaskContext intelligence
+func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, feedback *AgentFeedback) error {
+	fmt.Printf("[ManagerAgent] Processing dependency request from %s for task %s\n",
+		feedback.AgentName, feedback.TaskID)
+
+	// ✅ SMART DECISION: Check if we should create dependency or just retry
+	if feedback.TaskContext != nil {
+		// If too many retries, might be a different issue
+		if !feedback.TaskContext.ShouldRetry(3) {
+			fmt.Printf("[ManagerAgent] Task %s has %d attempts, escalating instead of creating dependency\n",
+				feedback.TaskID, feedback.TaskContext.PreviousAttempts)
+			return m.escalateToUser(ctx, feedback)
+		}
+
+		// Check error patterns
+		patterns := feedback.TaskContext.GetErrorPatterns()
+		if len(patterns) > 0 {
+			fmt.Printf("[ManagerAgent] Detected error patterns for %s: %v\n",
+				feedback.TaskID, patterns)
+		}
+	}
+
+	// Extract dependency info
+	depDesc, ok := feedback.Context["dependency_description"].(string)
+	if !ok {
+		return fmt.Errorf("missing dependency_description")
+	}
+
+	depTypeStr, ok := feedback.Context["dependency_type"].(string)
+	if !ok {
+		depTypeStr = "code" // default
+	}
+	depType := ManagedTaskType(depTypeStr)
+
+	// Parse task ID from TaskContext
+	var currentTaskID int
+	if feedback.TaskContext != nil && feedback.TaskContext.TaskKey != "" {
+		// Use TaskKey from TaskContext (e.g., "TASK-001")
+		fmt.Sscanf(feedback.TaskContext.TaskKey, "TASK-%d", &currentTaskID)
+	} else {
+		// Fallback: try to parse TaskID directly
+		fmt.Sscanf(feedback.TaskID, "TASK-%d", &currentTaskID)
+	}
+
+	if currentTaskID == 0 {
+		return fmt.Errorf("cannot insert dependency for simple task: %s (TaskKey: %s)",
+			feedback.TaskID,
+			func() string {
+				if feedback.TaskContext != nil {
+					return feedback.TaskContext.TaskKey
+				}
+				return "none"
+			}())
+	}
+
+	currentTask, err := m.queue.GetTask(currentTaskID)
+	if err != nil {
+		return fmt.Errorf("failed to get current task: %w", err)
+	}
+
+	// Create dependency task
+	depTask := NewManagedTask(
+		fmt.Sprintf("Prerequisite: %s", depDesc),
+		depDesc,
+		depType,
+	)
+	depTask.ParentTaskID = currentTask.ParentTaskID
+	depTask.Priority = currentTask.Priority + 1 // Higher priority
+
+	// ✅ COPY FULL CONTEXT from current task (including project path!)
+	depTask.Input = make(map[string]interface{})
+	for k, v := range currentTask.Input {
+		depTask.Input[k] = v
+	}
+
+	// ✅ ADD ERROR CONTEXT for dependency to learn from
+	if feedback.TaskContext != nil {
+		if lastErr := feedback.TaskContext.GetLastError(); lastErr != nil {
+			depTask.Input["trigger_error"] = map[string]interface{}{
+				"type":    lastErr.ErrorType,
+				"message": lastErr.Message,
+				"file":    lastErr.FilePath,
+			}
+		}
+	}
+
+	// ✅ SPECIAL HANDLING for compile error fix requests (Phase 1.5)
+	if errorType, ok := feedback.Context["error_type"].(string); ok {
+		if strings.Contains(errorType, "error") || strings.Contains(errorType, "compile") {
+			// This is a compile error fix request
+			depTask.Type = ManagedTaskTypeCode
+			depTask.Title = fmt.Sprintf("Fix compilation errors: %s", errorType)
+
+			// Include detailed error information
+			depTask.Input["fix_mode"] = true // Signal to CodeAgent this is a fix task
+			depTask.Input["compile_error"] = feedback.Context["error_message"]
+			depTask.Input["error_type"] = errorType
+			depTask.Input["error_analysis"] = feedback.Context
+			depTask.Input["target_path"] = feedback.Context["target_path"]
+
+			fmt.Printf("[ManagerAgent] Created compile error fix task: %s\n", errorType)
+		}
+	}
+
+	SetDefaultDORCriteria(depTask)
+	SetDefaultDODCriteria(depTask)
+
+	// Create dependency and block current task
+	if err := m.queue.CreateTask(depTask); err != nil {
+		return fmt.Errorf("failed to create dependency task: %w", err)
+	}
+
+	currentTask.DependsOn = append(currentTask.DependsOn, depTask.TaskKey)
+	currentTask.Block(fmt.Sprintf("Waiting for prerequisite: %s", depTask.TaskKey))
+
+	if err := m.queue.UpdateTask(currentTask); err != nil {
+		return fmt.Errorf("failed to update current task: %w", err)
+	}
+
+	fmt.Printf("[ManagerAgent] ✓ Created dependency %s → blocks %s\n", depTask.TaskKey, currentTask.TaskKey)
+
+	// Mark dependency as ready
+	if err := m.ValidateAndMarkReady(ctx, depTask.ID); err != nil {
+		return fmt.Errorf("failed to mark dependency ready: %w", err)
+	}
+
+	fmt.Printf("[ManagerAgent] Dependency task %s queued for execution\n", depTask.TaskKey)
+
+	return nil
+}
+
+// handleRetryRequest processes retry requests based on error patterns
+func (m *ManagerAgent) handleRetryRequest(ctx context.Context, feedback *AgentFeedback) error {
+	// Smart retry logic based on TaskContext
+	if feedback.TaskContext != nil {
+		patterns := feedback.TaskContext.GetErrorPatterns()
+		if len(patterns) > 0 {
+			// Same error repeating - don't just retry, adjust strategy
+			fmt.Printf("[ManagerAgent] Retry with adjusted strategy for patterns: %v\n", patterns)
+		}
+	}
+
+	// Unblock and let coordinator retry
+	var taskID int
+	fmt.Sscanf(feedback.TaskID, "TASK-%d", &taskID)
+	if taskID > 0 {
+		return m.UnblockTask(ctx, taskID)
+	}
+
+	return nil
+}
+
+// escalateToUser escalates to user when automatic recovery fails
+func (m *ManagerAgent) escalateToUser(ctx context.Context, feedback *AgentFeedback) error {
+	fmt.Printf("\n⚠️  ESCALATION NEEDED ⚠️\n")
+	fmt.Printf("Task: %s\n", feedback.TaskID)
+	fmt.Printf("Agent: %s\n", feedback.AgentName)
+	fmt.Printf("Issue: %s\n", feedback.Message)
+
+	if feedback.TaskContext != nil {
+		fmt.Printf("Attempts: %d\n", feedback.TaskContext.PreviousAttempts)
+		patterns := feedback.TaskContext.GetErrorPatterns()
+		if len(patterns) > 0 {
+			fmt.Printf("Error patterns: %v\n", patterns)
+		}
+	}
+
+	fmt.Printf("Suggestion: %s\n\n", feedback.Suggestion)
+
+	// For now, just log. Phase 2 could add user interaction
+	return nil
+}

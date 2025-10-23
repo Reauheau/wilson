@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"wilson/core/registry"
@@ -263,8 +264,102 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			result.ToolsExecuted = append(result.ToolsExecuted, "compile")
 
 			if compileErr != nil {
-				result.Error = fmt.Sprintf("Auto-injected compile failed: %v", compileErr)
-				return result, fmt.Errorf("auto-injected compile failed: %w", compileErr)
+				errorMsg := compileErr.Error()
+
+				// ✅ RECORD ERROR IN TASKCONTEXT for learning
+				if ate.taskContext != nil {
+					// Try to extract file and line number from compile error
+					// Go format: "file.go:10:5: error message"
+					filePath := compileTarget
+					lineNumber := 0
+
+					parts := strings.Split(errorMsg, ":")
+					if len(parts) >= 3 {
+						if num, err := strconv.Atoi(parts[1]); err == nil {
+							lineNumber = num
+						}
+					}
+
+					ate.taskContext.AddError(ExecutionError{
+						Timestamp:   ate.taskContext.CreatedAt,
+						Agent:       "AgentExecutor",
+						Phase:       "compilation",
+						ErrorType:   "compile_error",
+						Message:     errorMsg,
+						FilePath:    filePath,
+						LineNumber:  lineNumber,
+						CodeSnippet: "", // Could extract from file
+						Suggestion:  "Fix compilation errors in generated code",
+					})
+				}
+
+				// ✅ HYBRID APPROACH: Analyze error and decide action
+				analysis := AnalyzeCompileError(errorMsg)
+				fmt.Printf("[AgentExecutor] Compile error detected: %s (severity: %s, files: %d, errors: %d)\n",
+					analysis.ErrorType, analysis.Severity, analysis.FilesCount, analysis.ErrorCount)
+
+				// SIMPLE error + haven't exceeded max attempts → iterative fix
+				const maxSimpleFixAttempts = 3
+				if analysis.Severity == ErrorSeveritySimple && i < maxSimpleFixAttempts {
+					fmt.Printf("[AgentExecutor] Attempting iterative fix (attempt %d/%d)\n",
+						i+1, maxSimpleFixAttempts)
+
+					// Add error context to conversation for LLM to fix
+					conversationHistory = append(conversationHistory, llm.Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"target": "%s"}}`, compileTarget),
+					})
+					conversationHistory = append(conversationHistory, llm.Message{
+						Role:    "user",
+						Content: analysis.FormatFixPrompt(errorMsg),
+					})
+
+					// Continue to next iteration - LLM will attempt to fix
+					continue
+				}
+
+				// COMPLEX error OR max simple attempts exceeded → send feedback
+				fmt.Printf("[AgentExecutor] %s - sending feedback for separate fix task\n",
+					func() string {
+						if analysis.Severity == ErrorSeverityComplex {
+							return "Complex error detected"
+						}
+						return "Max iterative fix attempts exceeded"
+					}())
+
+				if ate.taskContext != nil {
+					// Create base agent to send feedback
+					baseAgent := &BaseAgent{
+						name:           "AgentExecutor",
+						currentTaskID:  ate.taskContext.TaskID,
+						currentContext: ate.taskContext,
+					}
+
+					// Send feedback requesting fix task
+					feedbackCtx := map[string]interface{}{
+						"error_message":  errorMsg,
+						"error_type":     analysis.ErrorType,
+						"severity":       string(analysis.Severity),
+						"affected_files": analysis.FilesCount,
+						"error_count":    analysis.ErrorCount,
+						"target_path":    compileTarget,
+						"suggestion":     analysis.Suggestion,
+					}
+
+					err := baseAgent.SendFeedback(ctx,
+						FeedbackTypeDependencyNeeded,
+						FeedbackSeverityCritical,
+						fmt.Sprintf("Compilation errors need fixing: %s", analysis.ErrorType),
+						feedbackCtx,
+						"Create a fix task to resolve compilation errors")
+
+					if err != nil {
+						fmt.Printf("[AgentExecutor] Warning: Failed to send feedback: %v\n", err)
+					}
+				}
+
+				result.Error = fmt.Sprintf("Compilation failed: %v", compileErr)
+				return result, fmt.Errorf("compilation failed: %w", compileErr)
 			}
 
 			result.ToolResults = append(result.ToolResults, compileResult)
