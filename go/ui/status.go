@@ -158,3 +158,11 @@ func GetGlobalStatus() *StatusLine {
 	})
 	return globalStatus
 }
+
+// Printf clears the spinner (if active) and then prints the formatted string
+// This should be used instead of fmt.Printf in agent code to avoid spinner overlap
+func Printf(format string, args ...interface{}) {
+	status := GetGlobalStatus()
+	status.Clear()
+	fmt.Printf(format, args...)
+}

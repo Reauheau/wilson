@@ -181,6 +181,28 @@ func (a *BaseAgent) SendFeedback(ctx context.Context, feedbackType FeedbackType,
 	return bus.Send(feedback)
 }
 
+// SendFeedbackAndWait sends feedback and waits for it to be processed synchronously
+// Use this for critical errors where you need to wait for recovery to complete
+func (a *BaseAgent) SendFeedbackAndWait(ctx context.Context, feedbackType FeedbackType,
+	severity FeedbackSeverity, message string,
+	context map[string]interface{}, suggestion string) error {
+
+	bus := GetFeedbackBus()
+
+	feedback := &AgentFeedback{
+		TaskID:       a.currentTaskID,
+		AgentName:    a.name,
+		FeedbackType: feedbackType,
+		Severity:     severity,
+		Message:      message,
+		Context:      context,
+		Suggestion:   suggestion,
+		TaskContext:  a.currentContext,
+	}
+
+	return bus.SendAndWait(ctx, feedback)
+}
+
 // RequestDependency requests a missing dependency with error context
 // This method sends feedback to create a dependency task and returns an error to block the current task
 func (a *BaseAgent) RequestDependency(ctx context.Context, description string,

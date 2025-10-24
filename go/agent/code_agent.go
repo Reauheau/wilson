@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	contextpkg "wilson/context"
 	"wilson/core/registry"
 	"wilson/llm"
+	"wilson/ui"
 )
 
 // CodeAgent specializes in code generation, analysis, and refactoring
@@ -31,7 +33,8 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		"list_files",
 		// File writing (critical for code generation!)
 		"write_file",     // Create new files
-		"modify_file",    // Replace existing content
+		"modify_file",    // Replace existing content (use for multi-line changes)
+		"edit_line",      // Edit specific line by line number (use for single-line fixes)
 		"append_to_file", // Add new functions/content to existing files
 		// Code generation (CRITICAL - use this instead of writing code yourself!)
 		"generate_code", // Calls specialist code model to generate actual code
@@ -111,6 +114,27 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		return result, err
 	}
 
+	// ✅ CRITICAL FIX: For ALL fix tasks, remove generate_code - force surgical editing only
+	if fixMode, ok := task.Input["fix_mode"].(bool); ok && fixMode {
+		// Save original tools
+		originalTools := a.allowedTools
+
+		// Create filtered list WITHOUT generate_code
+		filteredTools := make([]string, 0)
+		for _, tool := range originalTools {
+			if tool != "generate_code" {
+				filteredTools = append(filteredTools, tool)
+			}
+		}
+		a.allowedTools = filteredTools
+		fmt.Printf("[CodeAgent] Fix mode: removed generate_code, enforcing surgical edits (edit_line/modify_file)\n")
+
+		// Restore tools after execution
+		defer func() {
+			a.allowedTools = originalTools
+		}()
+	}
+
 	// Get current context for background
 	currentCtx, err := a.GetContext()
 	if err != nil {
@@ -120,6 +144,23 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 	// === LAYER 1: INTENT - Get LLM plan ===
 	systemPrompt := a.buildSystemPrompt()
 	userPrompt := a.buildUserPrompt(task, currentCtx)
+	// ✅ ROBUST FIX: Auto-inject source code for test tasks
+	// Don't rely on LLM to figure out it needs to read files - just give it the content
+	if fileType, ok := task.Input["file_type"].(string); ok && fileType == "test" {
+		if depFiles, ok := task.Input["dependency_files"].([]string); ok && len(depFiles) > 0 {
+			userPrompt += "\n\n=== SOURCE CODE TO TEST ===\n"
+			for _, file := range depFiles {
+				content, err := os.ReadFile(file)
+				if err == nil {
+					userPrompt += fmt.Sprintf("\n**File: %s**\n```go\n%s\n```\n", file, string(content))
+				} else {
+					userPrompt += fmt.Sprintf("\n**File: %s** (could not read: %v)\n", file, err)
+				}
+			}
+			userPrompt += "\n→ Generate unit tests for the functions/methods in the above code.\n"
+			userPrompt += "→ Do NOT try to test main() or CLI I/O. Focus on testable functions.\n"
+		}
+	}
 
 	// Update progress
 	coordinator := GetGlobalCoordinator()
@@ -127,55 +168,52 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		coordinator.UpdateTaskProgress(task.ID, "Waiting for LLM response...", nil)
 	}
 
-	var execResult *ExecutionResult
-	// No retries needed - atomic task principle, workflow validation in agent_executor
-	maxWorkflowRetries := 1
+	// ✅ REMOVED: Redundant maxWorkflowRetries loop that only ran once
+	// Retries are now handled by:
+	// 1. agent_executor iterative fix (up to 3 attempts for simple errors)
+	// 2. Feedback loop (for complex errors)
+	// This separation is cleaner and follows Wilson's feedback-driven architecture
 
-	for attempt := 1; attempt <= maxWorkflowRetries; attempt++ {
-		// Use validated LLM call with automatic retry
-		response, err := CallLLMWithValidation(ctx, a.llmManager, a.purpose, systemPrompt, userPrompt, 5, task.ID)
-		if err != nil {
-			result.Success = false
-			result.Error = fmt.Sprintf("LLM validation error: %v", err)
-			return result, err
-		}
-
-		// === LAYER 2: EXECUTION - Actually run the tools ===
-		executor := NewAgentToolExecutor(
-			registry.NewExecutor(),
-			a.llmManager,
-		)
-
-		execResult, err = executor.ExecuteAgentResponse(
-			ctx,
-			response,
-			systemPrompt,
-			userPrompt,
-			a.purpose,
-			task.ID,          // Pass task ID for progress updates
-			a.currentContext, // Pass TaskContext for path extraction (Phase 2)
-		)
-
-		if err != nil {
-			// Execution failed or hallucination detected
-			result.Success = false
-			result.Error = fmt.Sprintf("Execution failed: %v", err)
-			result.Output = execResult.Output
-
-			if execResult.HallucinationDetected {
-				result.Error = "Code Agent hallucinated: provided description instead of using tools"
-			}
-
-			return result, err
-		}
-
-		// === LAYER 2.5: WORKFLOW VALIDATION - Check mandatory sequences ===
-		// Note: Workflow validation is now handled by agent_executor.go auto-injection
-		// No retry logic needed here - atomic task principle means each task does one thing
-
-		// Workflow validation passed - continue to verification
-		break
+	// Use validated LLM call with automatic retry
+	response, err := CallLLMWithValidation(ctx, a.llmManager, a.purpose, systemPrompt, userPrompt, 5, task.ID)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("LLM validation error: %v", err)
+		return result, err
 	}
+
+	// === LAYER 2: EXECUTION - Actually run the tools ===
+	executor := NewAgentToolExecutor(
+		registry.NewExecutor(),
+		a.llmManager,
+	)
+
+	execResult, err := executor.ExecuteAgentResponse(
+		ctx,
+		response,
+		systemPrompt,
+		userPrompt,
+		a.purpose,
+		task.ID,          // Pass task ID for progress updates
+		a.currentContext, // Pass TaskContext for path extraction (Phase 2)
+	)
+
+	if err != nil {
+		// Execution failed or hallucination detected
+		result.Success = false
+		result.Error = fmt.Sprintf("Execution failed: %v", err)
+		result.Output = execResult.Output
+
+		if execResult.HallucinationDetected {
+			result.Error = "Code Agent hallucinated: provided description instead of using tools"
+		}
+
+		return result, err
+	}
+
+	// === LAYER 2.5: WORKFLOW VALIDATION - Check mandatory sequences ===
+	// Note: Workflow validation is now handled by agent_executor.go auto-injection
+	// Each task does one thing cleanly - ManagerAgent coordinates the sequence
 
 	// === LAYER 3: VERIFICATION - Check actual results ===
 	verifier := GetVerifier(string(TaskTypeCode))
@@ -194,9 +232,25 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 
 	// === SUCCESS - All three layers passed ===
 
+	// Extract created files for dependency tracking
+	createdFiles := []string{}
+	if verifier != nil {
+		if codeVerifier, ok := verifier.(*CodeTaskVerifier); ok {
+			createdFiles = codeVerifier.ExtractCreatedFiles(execResult)
+			if len(createdFiles) > 0 {
+				ui.Printf("[CodeAgent] Extracted created files: %v\n", createdFiles)
+			} else {
+				ui.Printf("[CodeAgent] Warning: No files extracted from tools: %v\n", execResult.ToolsExecuted)
+			}
+		}
+	}
+
 	// Store execution summary as artifact
 	artifactContent := fmt.Sprintf("Code Generation Task Completed\n\n")
 	artifactContent += fmt.Sprintf("Tools Executed: %s\n\n", strings.Join(execResult.ToolsExecuted, ", "))
+	if len(createdFiles) > 0 {
+		artifactContent += fmt.Sprintf("Created Files: %s\n\n", strings.Join(createdFiles, ", "))
+	}
 	artifactContent += fmt.Sprintf("Results:\n%s", execResult.Output)
 
 	artifact, err := a.StoreArtifact(
@@ -221,6 +275,7 @@ func (a *CodeAgent) Execute(ctx context.Context, task *Task) (*Result, error) {
 		"artifact_id":    artifact.ID,
 		"tools_executed": execResult.ToolsExecuted,
 		"verified":       true,
+		"created_files":  createdFiles, // ✅ CRITICAL: Track created files for dependency injection
 	}
 
 	return result, nil
@@ -269,6 +324,22 @@ func (a *CodeAgent) checkPreconditions(ctx context.Context, task *Task) error {
 		}
 	}
 
+	// ✅ Check 4: STALE FILE DETECTION
+	// If creating a test file, check for conflicting test files from previous runs
+	if fileType, ok := task.Input["file_type"].(string); ok && fileType == "test" {
+		// Check if test files already exist in the target directory
+		if projectPath != "." {
+			testFiles, err := filepath.Glob(filepath.Join(projectPath, "*_test.go"))
+			if err == nil && len(testFiles) > 0 {
+				// Stale test files detected - log warning
+				fmt.Printf("[CodeAgent] ⚠️  STALE FILES DETECTED: Found %d existing test files in %s\n",
+					len(testFiles), projectPath)
+				fmt.Printf("[CodeAgent] These may conflict with new test generation. Files: %v\n", testFiles)
+				// For now, just log - future: could auto-delete or merge
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -291,33 +362,39 @@ Generate ONE file per task. You are part of a multi-task workflow managed by the
 
 === WORKFLOW (AUTOMATIC) ===
 
-1. **generate_code** - You call this with requirements
-   → Code generation model creates code
+**FOR NEW FILES:**
+1. **generate_code** - Create new code
+   → System auto-saves to file
+   → System auto-compiles
 
-2. **[AUTO]** write_file - System saves to filesystem
-   → Automatic after generate_code
+**FOR FIXING ERRORS:**
+1. **ALWAYS** see the file content (auto-provided in fix tasks)
+2. **edit_line** - For single-line fixes (PREFERRED for simple errors)
+   → Specify line number from error message
+   → System auto-compiles after edit
+3. **modify_file** - For multi-line changes
+   → Specify exact old/new content
+   → System auto-compiles after modification
+4. **generate_code** - ONLY for complex logic rewrites
+   → Use as last resort when simple edits won't work
 
-3. **[AUTO]** compile - System validates compilation
-   → Automatic after write_file
-   → If errors: You get another chance to fix
+=== TOOL SELECTION GUIDE ===
 
-4. **EXIT** - Task complete after successful compilation
-   → Next task (if any) handled by ManagerAgent
+**edit_line** - BEST for fixing compilation errors ⭐
+- Error gives line number → use that line number
+- Change only what's broken
+- Preserves formatting automatically
+{"tool": "edit_line", "arguments": {"path": "file.go", "line": 9, "new_content": "fixed code here"}}
 
-=== TOOL USAGE ===
-
-**generate_code** - Primary tool for code creation
-{"tool": "generate_code", "arguments": {
-  "language": "go",
-  "description": "What this file should do",
-  "requirements": ["Requirement 1", "Requirement 2"]
-}}
-
-**read_file** - Understand existing code before modifying
-{"tool": "read_file", "arguments": {"path": "existing.go"}}
-
-**modify_file** - Change existing code
+**modify_file** - For multi-line surgical changes
+- When you need to change multiple consecutive lines
+- When exact old_content match is reliable
 {"tool": "modify_file", "arguments": {"path": "file.go", "old_content": "...", "new_content": "..."}}
+
+**generate_code** - ONLY for creating NEW files
+- Initial file creation
+- DO NOT use for fixes (too risky, loses context)
+{"tool": "generate_code", "arguments": {"language": "go", "description": "what to create"}}
 
 === EXAMPLE TASKS ===
 
@@ -350,19 +427,26 @@ Task: "Add error logging to auth.go"
 → Done (1 file modified)
 
 Task: "Fix compilation error in validator.go"
-→ Read error message
-→ Use generate_code with error context to create fixed version
-→ Done (1 file fixed)
+→ Error shows: "./validator.go:15:20: undefined: ValidateEmail"
+→ Use edit_line to fix line 15
+→ System auto-compiles
+→ Done (1 file fixed, 1 line changed)
 
 === ERROR HANDLING ===
 
-Compilation errors (from auto-compile):
-1. Read error carefully - what's actually wrong?
-2. Call generate_code again with error as context
-3. System re-saves and re-compiles
-4. Repeat if needed (up to system limit)
+Compilation errors contain line numbers like "./file.go:LINE:COL: message"
 
-Fix by providing better instructions to generate_code, not by manually editing.
+**Fix Strategy:**
+1. Extract line number from error (e.g., "./main.go:42:5:" → line 42)
+2. See the file content (automatically provided in fix tasks)
+3. Use **edit_line** to fix that specific line:
+   {"tool": "edit_line", "arguments": {"path": "main.go", "line": 42, "new_content": "corrected code"}}
+4. System auto-compiles
+5. Repeat if more errors
+
+**Multiple errors:** Call edit_line multiple times (once per line)
+
+**DO NOT use generate_code for fixes** - it regenerates the entire file and loses context.
 
 === QUALITY STANDARDS ===
 
@@ -382,6 +466,80 @@ func (a *CodeAgent) buildUserPrompt(task *Task, currentCtx *contextpkg.Context) 
 	var prompt strings.Builder
 
 	prompt.WriteString(fmt.Sprintf("Task: %s\n\n", task.Description))
+
+	// ✅ FIX 2 & 3: Special handling for FIX MODE tasks
+	if fixMode, ok := task.Input["fix_mode"].(bool); ok && fixMode {
+		prompt.WriteString("⚠️  **FIX MODE ACTIVATED** ⚠️\n\n")
+		prompt.WriteString("This is a compilation error fix task. Your goal is to fix the error by generating corrected code.\n\n")
+
+		// ✅ CRITICAL: Show original task goal to prevent context loss
+		if originalGoal, ok := task.Input["original_task_description"].(string); ok && originalGoal != "" {
+			prompt.WriteString(fmt.Sprintf("🎯 **REMEMBER THE ORIGINAL GOAL**: %s\n\n", originalGoal))
+			prompt.WriteString("You must fix the compilation error while staying true to this original requirement.\n\n")
+		}
+
+		// ✅ SHOW RETRY CONTEXT: If this is a repeated error, tell the LLM
+		if a.currentContext != nil && a.currentContext.PreviousAttempts > 0 {
+			prompt.WriteString(fmt.Sprintf("⚠️  **RETRY #%d**: Previous attempts failed with similar errors.\n", a.currentContext.PreviousAttempts))
+			prompt.WriteString("Analyze what went wrong before and try a DIFFERENT approach.\n\n")
+		}
+
+		// Show error type
+		if errorType, ok := task.Input["error_type"].(string); ok {
+			prompt.WriteString(fmt.Sprintf("**Error Type**: %s\n\n", errorType))
+		}
+
+		// Show the compilation error
+		if compileError, ok := task.Input["compile_error"].(string); ok {
+			prompt.WriteString("**Compilation Error**:\n```\n")
+			prompt.WriteString(compileError)
+			prompt.WriteString("\n```\n\n")
+
+			// ✅ FIX 3: Include error classifier guidance
+			analysis := AnalyzeCompileError(compileError)
+			prompt.WriteString(analysis.FormatFixPrompt(compileError))
+			prompt.WriteString("\n")
+		}
+
+		// ✅ FIX 2: Auto-load and inject file content
+		if targetFile, ok := task.Input["target_file"].(string); ok {
+			prompt.WriteString(fmt.Sprintf("**Target File**: %s\n\n", targetFile))
+
+			if content, err := os.ReadFile(targetFile); err == nil {
+				prompt.WriteString("**Current Code**:\n```go\n")
+				prompt.WriteString(string(content))
+				prompt.WriteString("\n```\n\n")
+
+				prompt.WriteString("**Fix Strategy: Use edit_line for ALL fixes**\n")
+				prompt.WriteString("1. Extract line number from error (format: './file.go:LINE:COL: message')\n")
+				prompt.WriteString("2. Call edit_line with that line number and corrected content\n")
+				prompt.WriteString("3. For multiple errors, call edit_line multiple times\n")
+				prompt.WriteString("4. Example: {\"tool\": \"edit_line\", \"arguments\": {\"path\": \"file.go\", \"line\": 42, \"new_content\": \"fixed line\"}}\n\n")
+				prompt.WriteString("⚠️  CRITICAL: generate_code is NOT available in fix mode - you can only use edit_line\n\n")
+
+				// ✅ For test file fixes with undefined functions, inject source code
+				if strings.HasSuffix(targetFile, "_test.go") {
+					if depFiles, ok := task.Input["dependency_files"].([]string); ok && len(depFiles) > 0 {
+						prompt.WriteString("**Source files that tests reference:**\n")
+						for _, file := range depFiles {
+							if !strings.HasSuffix(file, "_test.go") {
+								if content, err := os.ReadFile(file); err == nil {
+									prompt.WriteString(fmt.Sprintf("\n**File: %s**\n```go\n%s\n```\n", file, string(content)))
+								}
+							}
+						}
+						prompt.WriteString("\n→ Use the ACTUAL function names from the source files above\n")
+						prompt.WriteString("→ Fix test code to call the correct functions\n\n")
+					}
+				}
+			} else {
+				prompt.WriteString(fmt.Sprintf("⚠️  Warning: Could not read file: %v\n\n", err))
+				prompt.WriteString("You will need to use `read_file` tool first to see the current code.\n\n")
+			}
+		}
+
+		return prompt.String()
+	}
 
 	// Include input parameters if any
 	if len(task.Input) > 0 {

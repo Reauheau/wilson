@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"wilson/llm"
+	"wilson/ui"
 )
 
 // ManagerAgent is responsible for task orchestration and coordination
@@ -403,6 +404,13 @@ func (m *ManagerAgent) checkParentCompletion(ctx context.Context, parentTaskID i
 		// Mark parent DoD as met
 		parent.DODMet = true
 
+		// ✅ CRITICAL: Persist DODMet=true BEFORE calling CompleteTask
+		// CompleteTask will reload from DB, so we need to save this first
+		if err := m.queue.UpdateTask(parent); err != nil {
+			fmt.Printf("[ManagerAgent] ERROR: Failed to persist parent DODMet for %s: %v\n", parent.TaskKey, err)
+			return
+		}
+
 		// Collect all subtask results
 		var results []string
 		var allArtifacts []int
@@ -421,6 +429,9 @@ func (m *ManagerAgent) checkParentCompletion(ctx context.Context, parentTaskID i
 
 		if err := m.queue.CompleteTask(parentTaskID, combinedResult, allArtifacts); err == nil {
 			m.logCommunication(ctx, "", "notification", fmt.Sprintf("Parent task %s auto-completed (all subtasks done)", parent.TaskKey), parent.TaskKey)
+		} else {
+			// ✅ LOG FAILURE - this was silently swallowed before
+			fmt.Printf("[ManagerAgent] ERROR: Failed to complete parent task %s: %v\n", parent.TaskKey, err)
 		}
 	}
 }
@@ -612,10 +623,17 @@ func (m *ManagerAgent) heuristicDecompose(ctx context.Context, request string, p
 	// Task 1: Focus on core implementation only
 	// Remove test/build-related instructions from the task
 	mainDesc := extractCoreDescription(request)
+
+	// ✅ ADD TESTABILITY HINT if tests will follow
+	if hasTest {
+		mainDesc += ". Create testable functions/methods (not all logic in main())."
+	}
+
 	task1 := NewManagedTask("Implement functionality", mainDesc, ManagedTaskTypeCode)
 	task1.ParentTaskID = &parentID
 	task1.Input = map[string]interface{}{
 		"project_path": projectPath,
+		"file_type":    "implementation", // ✅ Explicitly mark as implementation, not test
 	}
 	SetDefaultDORCriteria(task1)
 	SetDefaultDODCriteria(task1)
@@ -721,7 +739,7 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 			return fmt.Errorf("no agent found for task type: %s", task.Type)
 		}
 
-		fmt.Printf("[ManagerAgent] Task %s (type=%s) → %s agent\n", task.TaskKey, task.Type, agent.Name())
+		ui.Printf("[ManagerAgent] Task %s (type=%s) → %s agent\n", task.TaskKey, task.Type, agent.Name())
 
 		// Assign task
 		if err := m.AssignTaskToAgent(ctx, task.ID, agent.Name()); err != nil {
@@ -750,6 +768,15 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 
 		// Extract artifact IDs from result
 		artifactIDs := m.extractArtifactIDs(result)
+
+		// ✅ CRITICAL: Save result metadata (especially created_files) for dependency injection
+		if result.Metadata != nil {
+			task.Metadata = result.Metadata
+			if err := m.queue.UpdateTask(task); err != nil {
+				fmt.Printf("[ManagerAgent] Warning: Failed to save metadata for %s: %v\n", task.TaskKey, err)
+			} else {
+			}
+		}
 
 		// Complete task with DoD validation
 		if err := m.CompleteTask(ctx, task.ID, result.Output, artifactIDs); err != nil {
@@ -826,11 +853,11 @@ func (m *ManagerAgent) extractArtifactIDs(result *Result) []int {
 // - Simple task? → Direct delegation to single agent
 // - Complex task? → DecomposeTask() + ExecuteTaskPlan()
 func (m *ManagerAgent) HandleUserRequest(ctx context.Context, userRequest string) (*Result, error) {
-	fmt.Printf("\n[ManagerAgent] Analyzing request: %s\n", userRequest)
+	ui.Printf("\n[ManagerAgent] Analyzing request: %s\n", userRequest)
 
 	// Analyze complexity
 	if m.needsDecomposition(userRequest) {
-		fmt.Println("[ManagerAgent] → Complex task detected - decomposing into subtasks...")
+		ui.Printf("[ManagerAgent] → Complex task detected - decomposing into subtasks...\n")
 		return m.handleComplexRequest(ctx, userRequest)
 	}
 
@@ -859,7 +886,7 @@ func (m *ManagerAgent) needsDecomposition(request string) bool {
 
 	for _, indicator := range complexIndicators {
 		if strings.Contains(lower, indicator) {
-			fmt.Printf("[ManagerAgent] Detected complexity indicator: '%s'\n", indicator)
+			ui.Printf("[ManagerAgent] Detected complexity indicator: '%s'\n", indicator)
 			return true
 		}
 	}
@@ -875,17 +902,17 @@ func (m *ManagerAgent) handleComplexRequest(ctx context.Context, request string)
 		return nil, fmt.Errorf("decomposition failed: %w", err)
 	}
 
-	fmt.Printf("[ManagerAgent] Created parent task %s with %d subtasks\n", parentTask.TaskKey, len(subtasks))
+	ui.Printf("[ManagerAgent] Created parent task %s with %d subtasks\n", parentTask.TaskKey, len(subtasks))
 	for i, st := range subtasks {
 		deps := "none"
 		if len(st.DependsOn) > 0 {
 			deps = joinStrings(st.DependsOn, ", ")
 		}
-		fmt.Printf("  %d. [%s] %s (depends on: %s)\n", i+1, st.Type, st.Title, deps)
+		ui.Printf("  %d. [%s] %s (depends on: %s)\n", i+1, st.Type, st.Title, deps)
 	}
 
 	// Execute the plan
-	fmt.Println("[ManagerAgent] Executing task plan...")
+	ui.Printf("[ManagerAgent] Executing task plan...\n")
 	if err := m.ExecuteTaskPlan(ctx, parentTask.ID); err != nil {
 		return nil, fmt.Errorf("execution failed: %w", err)
 	}
@@ -1043,8 +1070,9 @@ func extractCoreDescription(request string) string {
 		", execute and build",
 		", execute, and build",
 		" and write test",
-		" and build",
+		" and a test file", // ✅ Common pattern
 		" and test",
+		" and build",
 		", test",
 		", build",
 		", execute",
@@ -1122,6 +1150,7 @@ func extractFilenameFromError(errorMsg string) string {
 }
 
 func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskContext) error {
+
 	// If no dependencies, nothing to inject
 	if len(task.DependsOn) == 0 {
 		return nil
@@ -1135,12 +1164,17 @@ func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskC
 
 		// Extract created files from metadata
 		if depTask.Metadata != nil {
-			if files, ok := depTask.Metadata["created_files"].([]interface{}); ok {
+			// Try []string first (from Code Agent)
+			if files, ok := depTask.Metadata["created_files"].([]string); ok {
+				taskCtx.DependencyFiles = append(taskCtx.DependencyFiles, files...)
+			} else if files, ok := depTask.Metadata["created_files"].([]interface{}); ok {
+				// Fallback to []interface{} for compatibility
 				for _, f := range files {
 					if filePath, ok := f.(string); ok {
 						taskCtx.DependencyFiles = append(taskCtx.DependencyFiles, filePath)
 					}
 				}
+			} else {
 			}
 
 			// Extract errors for learning
@@ -1157,6 +1191,14 @@ func (m *ManagerAgent) injectDependencyContext(task *ManagedTask, taskCtx *TaskC
 	if len(taskCtx.DependencyFiles) > 0 {
 		fmt.Printf("[ManagerAgent] Injected %d dependency files into task %s context\n",
 			len(taskCtx.DependencyFiles), task.TaskKey)
+
+		// ✅ CRITICAL: Also inject into task.Input["dependency_files"] so CodeAgent prompt can see them
+		// CodeAgent's buildUserPrompt checks task.Input["dependency_files"] at line 413
+		if task.Input == nil {
+			task.Input = make(map[string]interface{})
+		}
+		task.Input["dependency_files"] = taskCtx.DependencyFiles
+		fmt.Printf("[ManagerAgent] Added dependency_files to task.Input for prompt visibility\n")
 	}
 
 	// Load required files for fix/retry scenarios
@@ -1195,8 +1237,17 @@ func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, feedback *Ag
 
 	// ✅ SMART DECISION: Check if we should create dependency or just retry
 	if feedback.TaskContext != nil {
-		// If too many retries, might be a different issue
-		if !feedback.TaskContext.ShouldRetry(3) {
+		// ✅ PREVENT INFINITE RECURSION: If this is already a fix task, escalate immediately
+		if fixMode, ok := feedback.TaskContext.Input["fix_mode"].(bool); ok && fixMode {
+			fmt.Printf("[ManagerAgent] Task %s is already a fix task - escalating to prevent recursion\n",
+				feedback.TaskID)
+			return m.escalateToUser(ctx, feedback)
+		}
+
+		// ✅ FIX: Allow more attempts before escalating (iterative retries count as attempts)
+		// agent_executor does up to 3 iterative retries, so allow higher threshold
+		// This gives: 1 initial + 3 retries + feedback fix task = 5-6 attempts before escalation
+		if !feedback.TaskContext.ShouldRetry(10) {
 			fmt.Printf("[ManagerAgent] Task %s has %d attempts, escalating instead of creating dependency\n",
 				feedback.TaskID, feedback.TaskContext.PreviousAttempts)
 			return m.escalateToUser(ctx, feedback)
@@ -1263,8 +1314,16 @@ func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, feedback *Ag
 		depTask.Input[k] = v
 	}
 
-	// ✅ ADD ERROR CONTEXT for dependency to learn from
+	// ✅ CRITICAL FIX: Preserve dependency_files from TaskContext
+	// The database reload loses in-memory dependency_files, so we must restore from feedback
 	if feedback.TaskContext != nil {
+		if len(feedback.TaskContext.DependencyFiles) > 0 {
+			depTask.Input["dependency_files"] = feedback.TaskContext.DependencyFiles
+			fmt.Printf("[ManagerAgent] Preserved %d dependency files for fix task\n",
+				len(feedback.TaskContext.DependencyFiles))
+		}
+
+		// ✅ ADD ERROR CONTEXT for dependency to learn from
 		if lastErr := feedback.TaskContext.GetLastError(); lastErr != nil {
 			depTask.Input["trigger_error"] = map[string]interface{}{
 				"type":    lastErr.ErrorType,
@@ -1279,16 +1338,49 @@ func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, feedback *Ag
 		if strings.Contains(errorType, "error") || strings.Contains(errorType, "compile") {
 			// This is a compile error fix request
 			depTask.Type = ManagedTaskTypeCode
-			depTask.Title = fmt.Sprintf("Fix compilation errors: %s", errorType)
+
+			// ✅ CRITICAL: Preserve original task context to prevent "Hello World" syndrome
+			// After multiple fix layers, we must remember what we're actually building
+			depTask.Title = fmt.Sprintf("Fix %s in: %s", errorType, currentTask.Title)
+
+			// Inject original goal into description so LLM remembers the intent
+			originalGoal := currentTask.Description
+			depTask.Description = fmt.Sprintf("Fix compilation errors.\n\n**ORIGINAL GOAL**: %s\n\n**ERROR TO FIX**: %s",
+				originalGoal, errorType)
 
 			// Include detailed error information
-			depTask.Input["fix_mode"] = true // Signal to CodeAgent this is a fix task
+			depTask.Input["fix_mode"] = true                          // Signal to CodeAgent this is a fix task
+			depTask.Input["original_task_description"] = originalGoal // Also in Input for prompt access
 			depTask.Input["compile_error"] = feedback.Context["error_message"]
 			depTask.Input["error_type"] = errorType
 			depTask.Input["error_analysis"] = feedback.Context
-			depTask.Input["target_path"] = feedback.Context["target_path"]
 
-			fmt.Printf("[ManagerAgent] Created compile error fix task: %s\n", errorType)
+			// ✅ ROBUST FIX: Use target_file directly from agent_executor
+			// agent_executor now parses structured errors and identifies the exact file
+			targetPath := feedback.Context["target_path"].(string)
+			depTask.Input["target_path"] = targetPath
+
+			// Get target file directly - agent_executor extracted it from structured errors
+			targetFile := "main.go" // Default fallback
+			if tf, ok := feedback.Context["target_file"].(string); ok && tf != "" {
+				targetFile = tf
+				fmt.Printf("[ManagerAgent] Using target file from feedback: %s\n", targetFile)
+			} else {
+				// Fallback: try to extract from error message
+				if errorMsg, ok := feedback.Context["error_message"].(string); ok {
+					if extracted := extractFilenameFromError(errorMsg); extracted != "" {
+						targetFile = filepath.Join(targetPath, extracted)
+						fmt.Printf("[ManagerAgent] Extracted target file from error: %s\n", targetFile)
+					} else {
+						targetFile = filepath.Join(targetPath, "main.go")
+						fmt.Printf("[ManagerAgent] Using default target file: %s\n", targetFile)
+					}
+				}
+			}
+
+			depTask.Input["target_file"] = targetFile
+			fmt.Printf("[ManagerAgent] Created compile error fix task for: %s (error: %s)\n",
+				filepath.Base(targetFile), errorType)
 		}
 	}
 
@@ -1314,7 +1406,47 @@ func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, feedback *Ag
 		return fmt.Errorf("failed to mark dependency ready: %w", err)
 	}
 
-	fmt.Printf("[ManagerAgent] Dependency task %s queued for execution\n", depTask.TaskKey)
+	fmt.Printf("[ManagerAgent] Dependency task %s ready - executing immediately\n", depTask.TaskKey)
+
+	// ✅ FIX 4: Execute fix task immediately (don't just queue it)
+	// Get appropriate agent for the fix task
+	agent := m.getAgentForTaskType(depTask.Type)
+	if agent == nil {
+		return fmt.Errorf("no agent found for fix task type: %s", depTask.Type)
+	}
+
+	// Assign fix task
+	if err := m.AssignTaskToAgent(ctx, depTask.ID, agent.Name()); err != nil {
+		return fmt.Errorf("failed to assign fix task: %w", err)
+	}
+
+	// Start fix task
+	if err := m.StartTask(ctx, depTask.ID, agent.Name()); err != nil {
+		return fmt.Errorf("failed to start fix task: %w", err)
+	}
+
+	// Create TaskContext for fix task
+	fixTaskCtx := NewTaskContext(depTask)
+
+	// Execute fix task
+	ui.Printf("[ManagerAgent] Executing fix task %s with %s agent\n", depTask.TaskKey, agent.Name())
+	fixResult, err := agent.ExecuteWithContext(ctx, fixTaskCtx)
+	if err != nil {
+		// Fix task failed - block it and escalate
+		m.BlockTask(ctx, depTask.ID, err.Error())
+		return fmt.Errorf("fix task %s failed: %w", depTask.TaskKey, err)
+	}
+
+	// Extract artifact IDs from fix result
+	artifactIDs := m.extractArtifactIDs(fixResult)
+
+	// Complete fix task
+	if err := m.CompleteTask(ctx, depTask.ID, fixResult.Output, artifactIDs); err != nil {
+		return fmt.Errorf("failed to complete fix task: %w", err)
+	}
+
+	ui.Printf("[ManagerAgent] ✓ Fix task %s completed successfully\n", depTask.TaskKey)
+	ui.Printf("[ManagerAgent] → Original task %s will be unblocked and can be retried\n", currentTask.TaskKey)
 
 	return nil
 }

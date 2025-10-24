@@ -39,8 +39,44 @@ func AnalyzeCompileError(errorMsg string) *CompileErrorAnalysis {
 		return analysis
 	}
 
-	// Too many errors = complex (needs careful analysis)
+	// Too many errors = complex UNLESS they're all the same type
 	if analysis.ErrorCount > 5 {
+		// ✅ SMART: Check if all errors are the same type (e.g., all "undefined")
+		// If so, they're just multiple simple fixes, not complex
+		allUndefined := true
+		allFormatString := true
+		lines := strings.Split(errorMsg, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if strings.Contains(line, ".go:") {
+				if !strings.Contains(line, "undefined:") {
+					allUndefined = false
+				}
+				if !strings.Contains(line, "format %") || !strings.Contains(line, "has arg") {
+					allFormatString = false
+				}
+			}
+		}
+
+		// If all errors are the same simple type, treat as simple
+		if allUndefined {
+			analysis.Severity = ErrorSeveritySimple
+			analysis.ErrorType = "multiple_undefined"
+			analysis.Fixable = true
+			analysis.Suggestion = "Fix each undefined identifier using edit_line"
+			return analysis
+		}
+		if allFormatString {
+			analysis.Severity = ErrorSeveritySimple
+			analysis.ErrorType = "multiple_format_errors"
+			analysis.Fixable = true
+			analysis.Suggestion = "Fix each format string using edit_line"
+			return analysis
+		}
+
+		// Mixed error types = truly complex
 		analysis.Severity = ErrorSeverityComplex
 		analysis.ErrorType = "multiple_errors"
 		analysis.Fixable = true
@@ -87,7 +123,9 @@ func AnalyzeCompileError(errorMsg string) *CompileErrorAnalysis {
 	// Type mismatch (usually simple)
 	if strings.Contains(errorLower, "cannot use") ||
 		strings.Contains(errorLower, "type mismatch") ||
-		strings.Contains(errorLower, "cannot convert") {
+		strings.Contains(errorLower, "cannot convert") ||
+		strings.Contains(errorLower, "wrong type") ||
+		strings.Contains(errorLower, "format %") && strings.Contains(errorLower, "has arg") {
 		analysis.Severity = ErrorSeveritySimple
 		analysis.ErrorType = "type_error"
 		analysis.Fixable = true
@@ -104,6 +142,17 @@ func AnalyzeCompileError(errorMsg string) *CompileErrorAnalysis {
 		analysis.ErrorType = "argument_mismatch"
 		analysis.Fixable = true
 		analysis.Suggestion = "Fix function call or return statement"
+		return analysis
+	}
+
+	// ✅ NEW: Unused import/variable (very simple, common issue)
+	if strings.Contains(errorLower, "imported and not used") ||
+		strings.Contains(errorLower, "declared and not used") ||
+		strings.Contains(errorLower, "declared but not used") {
+		analysis.Severity = ErrorSeveritySimple
+		analysis.ErrorType = "unused_import_or_variable"
+		analysis.Fixable = true
+		analysis.Suggestion = "Remove unused import or variable declaration"
 		return analysis
 	}
 
@@ -190,40 +239,57 @@ func (a *CompileErrorAnalysis) FormatFixPrompt(errorMsg string) string {
 
 	prompt.WriteString(fmt.Sprintf("Suggestion: %s\n\n", a.Suggestion))
 
-	prompt.WriteString("Please fix the error by:\n")
+	prompt.WriteString("**CRITICAL: Use edit_line tool ONLY - no generate_code, no modify_file**\n\n")
+	prompt.WriteString("How to fix:\n")
+	prompt.WriteString("1. Extract line number from error message (format: './file.go:LINE:COL: message')\n")
+	prompt.WriteString("2. You can see the file content above - identify the problematic line\n")
+	prompt.WriteString("3. Use edit_line to fix that specific line:\n")
+	prompt.WriteString("   {\"tool\": \"edit_line\", \"arguments\": {\"path\": \"file.go\", \"line\": LINE, \"new_content\": \"corrected line\"}}\n\n")
+
+	prompt.WriteString("Error-specific guidance:\n")
 	switch a.ErrorType {
 	case "missing_import_or_typo":
-		prompt.WriteString("1. Identifying the undefined identifier\n")
-		prompt.WriteString("2. Adding the missing import statement if needed\n")
-		prompt.WriteString("3. Or correcting the typo in the variable/function name\n")
-		prompt.WriteString("4. Using modify_file to update the code\n")
+		prompt.WriteString("• Undefined identifier - either missing import OR typo\n")
+		prompt.WriteString("• Missing import: Add import at top (find import block line, use edit_line to add)\n")
+		prompt.WriteString("• Typo: Fix the name on the error line\n")
 
 	case "missing_package":
-		prompt.WriteString("1. Identifying the missing package\n")
-		prompt.WriteString("2. Adding the correct import statement\n")
-		prompt.WriteString("3. Using modify_file to add the import\n")
+		prompt.WriteString("• Find import block (usually lines 3-10)\n")
+		prompt.WriteString("• Use edit_line to add missing import line\n")
 
 	case "syntax_error":
-		prompt.WriteString("1. Locating the syntax error\n")
-		prompt.WriteString("2. Fixing the missing bracket, semicolon, or other syntax issue\n")
-		prompt.WriteString("3. Using modify_file to correct the syntax\n")
+		prompt.WriteString("• Fix syntax on the exact line in error message\n")
+		prompt.WriteString("• Add missing bracket/semicolon/quote using edit_line\n")
 
 	case "type_error":
-		prompt.WriteString("1. Understanding the type mismatch\n")
-		prompt.WriteString("2. Adding type conversion or fixing the type\n")
-		prompt.WriteString("3. Using modify_file to update the code\n")
+		if strings.Contains(errorMsg, "format %") && strings.Contains(errorMsg, "has arg") {
+			prompt.WriteString("• Printf format error: %d (int), %g (float), %f (float), %s (string)\n")
+			prompt.WriteString("• Change format specifier on error line (e.g., %d → %g for float64)\n")
+		} else {
+			prompt.WriteString("• Type mismatch - add conversion or fix type on error line\n")
+		}
 
 	case "argument_mismatch":
-		prompt.WriteString("1. Checking the function signature\n")
-		prompt.WriteString("2. Adjusting the number of arguments or return values\n")
-		prompt.WriteString("3. Using modify_file to fix the call or return\n")
+		prompt.WriteString("• Function call has wrong argument count\n")
+		prompt.WriteString("• Fix on error line - add/remove arguments to match signature\n")
+
+	case "unused_import_or_variable":
+		prompt.WriteString("• Find unused import/variable line number\n")
+		prompt.WriteString("• Use edit_line to remove that line (or comment it out)\n")
+
+	case "multiple_undefined":
+		prompt.WriteString("• Multiple undefined names - check source files for correct names\n")
+		prompt.WriteString("• Use edit_line multiple times (once per error line)\n")
+
+	case "multiple_format_errors":
+		prompt.WriteString("• Multiple format errors - fix each line\n")
+		prompt.WriteString("• Use edit_line multiple times: %d → %g for float64\n")
 
 	default:
-		prompt.WriteString("1. Analyzing the error message carefully\n")
-		prompt.WriteString("2. Determining the root cause\n")
-		prompt.WriteString("3. Applying the appropriate fix\n")
-		prompt.WriteString("4. Using modify_file to update the code\n")
+		prompt.WriteString("• Analyze error and fix the specific line mentioned\n")
 	}
+
+	prompt.WriteString("\n**ONE TOOL ONLY: edit_line with line number from error**\n")
 
 	return prompt.String()
 }

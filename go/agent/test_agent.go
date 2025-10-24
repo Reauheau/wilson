@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	contextpkg "wilson/context"
@@ -263,27 +264,20 @@ func (a *TestAgent) checkPreconditions(ctx context.Context, task *Task) error {
 			}
 		}
 
-		// Fallback: Check filesystem
-		// Use simple check instead of filepath.Glob to avoid import
-		// The actual test execution tool will handle the detailed check
+		// ✅ CRITICAL FIX: Test Agent should NEVER create new tasks
+		// If test files don't exist, that's a FATAL ERROR - the task decomposition is wrong
+		// Test Agent is the LAST step in a workflow, not the orchestrator
 
-		// ✅ SMART: Include context in dependency request
-		reason := fmt.Sprintf("No test files found in %s", projectPath)
-
-		// Check if we already tried this before (from error history)
-		if a.currentContext != nil {
-			if lastErr := a.currentContext.GetLastError(); lastErr != nil {
-				if lastErr.ErrorType == "missing_test_files" {
-					reason += " (previous attempt also failed - check if code files exist)"
-				}
-			}
+		// Check filesystem for test files
+		testFiles, _ := filepath.Glob(filepath.Join(projectPath, "*_test.go"))
+		if len(testFiles) > 0 {
+			// Test files exist! Proceed with execution
+			fmt.Printf("[TestAgent] Found %d existing test files, proceeding with execution\n", len(testFiles))
+			return nil
 		}
 
-		return a.RequestDependency(ctx,
-			fmt.Sprintf("Create test files in %s", projectPath),
-			ManagedTaskTypeCode,
-			reason,
-		)
+		// Test files missing - this is a fatal error
+		return fmt.Errorf("no test files found in %s - test creation should happen BEFORE test execution", projectPath)
 	}
 
 	return nil

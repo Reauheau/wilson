@@ -91,7 +91,32 @@ func (t *GenerateCodeTool) Execute(ctx context.Context, args map[string]interfac
 
 	// Build prompt for code model
 	var prompt strings.Builder
-	prompt.WriteString(fmt.Sprintf("Generate %s code that: %s\n\n", language, description))
+
+	// ✅ SPECIAL HANDLING: Detect test file generation
+	isTestFile := strings.Contains(strings.ToLower(description), "test")
+
+	if isTestFile {
+		// More specific guidance for test files
+		prompt.WriteString(fmt.Sprintf("Generate %s unit tests. ", language))
+		prompt.WriteString("Write standard unit tests using the testing package. ")
+
+		// ✅ CRITICAL: Fix package name for Go tests
+		if language == "go" {
+			prompt.WriteString("IMPORTANT: Use 'package main' NOT 'package main_test'. ")
+			prompt.WriteString("Test files in the same directory as the code should use the same package name. ")
+		}
+
+		prompt.WriteString("Test functions should call the code under test directly (not via main()). ")
+		prompt.WriteString(fmt.Sprintf("Task: %s\n\n", description))
+	} else {
+		// Regular code generation
+		prompt.WriteString(fmt.Sprintf("Generate %s code that: %s\n\n", language, description))
+
+		// ✅ ROBUST: Always create testable code structure
+		prompt.WriteString("IMPORTANT: Create separate functions/methods for business logic. ")
+		prompt.WriteString("Keep main() minimal - it should only call other functions. ")
+		prompt.WriteString("This ensures the code is testable.\n\n")
+	}
 
 	// Add requirements
 	if reqs, ok := args["requirements"].([]interface{}); ok && len(reqs) > 0 {

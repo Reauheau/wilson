@@ -44,6 +44,12 @@ func (t *OrchestrateCodeTaskTool) Validate(args map[string]interface{}) error {
 }
 
 func (t *OrchestrateCodeTaskTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
+	request, _ := args["request"].(string)
+
+	// ✅ DEBUG: Log every orchestration call with stack trace hint
+	fmt.Printf("\n[ORCHESTRATE_CODE_TASK] Called with request: %s\n", request)
+	fmt.Printf("[ORCHESTRATE_CODE_TASK] This will trigger HandleUserRequest\n\n")
+
 	coordinator := agentpkg.GetGlobalCoordinator()
 	if coordinator == nil {
 		return "", fmt.Errorf("agent coordinator not initialized")
@@ -53,8 +59,6 @@ func (t *OrchestrateCodeTaskTool) Execute(ctx context.Context, args map[string]i
 	if manager == nil {
 		return "", fmt.Errorf("manager agent not initialized")
 	}
-
-	request, _ := args["request"].(string)
 
 	// Route to ManagerAgent - it decides decompose vs single-agent
 	result, err := manager.HandleUserRequest(ctx, request)

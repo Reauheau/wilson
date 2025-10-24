@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"wilson/core/registry"
 	. "wilson/core/types"
 	"wilson/llm"
+	"wilson/ui"
 )
 
 // ANSI color codes and control sequences
@@ -20,14 +23,14 @@ const (
 	clearLine      = "\r\033[K" // Return to start and clear line
 )
 
-// printStatus prints a status message in light grey, clearing current line first
+// printStatus prints a status message in light grey, clearing spinner first
 func printStatus(message string) {
-	fmt.Printf("%s%s%s%s\n", clearLine, colorLightGrey, message, colorReset)
+	ui.Printf("%s%s%s%s\n", clearLine, colorLightGrey, message, colorReset)
 }
 
-// printSuccess prints a success message in green, clearing current line first
+// printSuccess prints a success message in green, clearing spinner first
 func printSuccess(message string) {
-	fmt.Printf("%s%s%s%s\n", clearLine, colorGreen, message, colorReset)
+	ui.Printf("%s%s%s%s\n", clearLine, colorGreen, message, colorReset)
 }
 
 // AgentToolExecutor handles tool execution for specialized agents
@@ -126,6 +129,31 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			coordinator.UpdateTaskProgress(taskID, fmt.Sprintf("Executing %s", toolCall.Tool), result.ToolsExecuted)
 		}
 
+		// Auto-inject source files for test generation
+		if toolCall.Tool == "generate_code" {
+			if desc, ok := toolCall.Arguments["description"].(string); ok {
+				isTestFile := strings.Contains(strings.ToLower(desc), "test")
+				if isTestFile && ate.taskContext != nil && len(ate.taskContext.DependencyFiles) > 0 {
+					var contextBuilder strings.Builder
+					contextBuilder.WriteString("Source files to test:\n\n")
+
+					for _, file := range ate.taskContext.DependencyFiles {
+						if !strings.HasSuffix(file, "_test.go") {
+							if content, err := os.ReadFile(file); err == nil {
+								contextBuilder.WriteString(fmt.Sprintf("=== %s ===\n```go\n%s\n```\n\n", filepath.Base(file), string(content)))
+							}
+						}
+					}
+
+					if existingContext, ok := toolCall.Arguments["context"].(string); ok && existingContext != "" {
+						contextBuilder.WriteString(existingContext)
+					}
+
+					toolCall.Arguments["context"] = contextBuilder.String()
+				}
+			}
+		}
+
 		// Execute the tool
 		toolResult, err := ate.executor.Execute(ctx, *toolCall)
 		result.ToolsExecuted = append(result.ToolsExecuted, toolCall.Tool)
@@ -163,17 +191,28 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			filename := "main.go" // default
 			if lang, ok := toolCall.Arguments["language"].(string); ok {
 				if desc, ok := toolCall.Arguments["description"].(string); ok {
-					// Check if this is for a test file
-					isTestFile := strings.Contains(strings.ToLower(desc), "test") ||
-						strings.Contains(strings.ToLower(userPrompt), "file_type: test")
+					// ✅ ROBUST FIX: Check explicit file_type first (most reliable)
+					isTestFile := strings.Contains(strings.ToLower(userPrompt), "file_type: test") ||
+						strings.Contains(strings.ToLower(userPrompt), "\"file_type\": \"test\"")
 
-					// Also check requirements
-					if reqs, ok := toolCall.Arguments["requirements"].([]interface{}); ok {
-						for _, req := range reqs {
-							if reqStr, ok := req.(string); ok {
-								if strings.Contains(strings.ToLower(reqStr), "test") {
-									isTestFile = true
-									break
+					// If explicitly marked as implementation, force NOT test
+					isImplementation := strings.Contains(strings.ToLower(userPrompt), "file_type: implementation") ||
+						strings.Contains(strings.ToLower(userPrompt), "\"file_type\": \"implementation\"")
+
+					if isImplementation {
+						isTestFile = false // Explicit override
+					} else if !isTestFile {
+						// Only use heuristics if not explicitly set
+						isTestFile = strings.Contains(strings.ToLower(desc), "test")
+
+						// Also check requirements
+						if reqs, ok := toolCall.Arguments["requirements"].([]interface{}); ok {
+							for _, req := range reqs {
+								if reqStr, ok := req.(string); ok {
+									if strings.Contains(strings.ToLower(reqStr), "test") {
+										isTestFile = true
+										break
+									}
 								}
 							}
 						}
@@ -244,6 +283,25 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				compileTarget = targetPath[:idx]
 			}
 
+			// ✅ AUTO-INIT: Check if go.mod exists in target directory, if not, initialize it
+			// This ensures Go projects can compile without manual setup
+			goModPath := filepath.Join(compileTarget, "go.mod")
+			if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+				// Extract module name from directory name
+				moduleName := filepath.Base(compileTarget)
+				if moduleName == "." || moduleName == "/" {
+					moduleName = "main"
+				}
+
+				// Create minimal go.mod
+				goModContent := fmt.Sprintf("module %s\n\ngo 1.21\n", moduleName)
+				if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err == nil {
+					ui.Printf("[AgentExecutor] Initialized go.mod in %s\n", compileTarget)
+				} else {
+					ui.Printf("[AgentExecutor] Warning: Could not create go.mod: %v\n", err)
+				}
+			}
+
 			// Extract directory name for display
 			dirName := compileTarget
 			if idx := strings.LastIndex(compileTarget, "/"); idx != -1 {
@@ -255,7 +313,7 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			compileCall := ToolCall{
 				Tool: "compile",
 				Arguments: map[string]interface{}{
-					"target": compileTarget,
+					"path": compileTarget, // ✅ FIX: Use "path" not "target"
 				},
 			}
 
@@ -263,8 +321,61 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			compileResult, compileErr := ate.executor.Execute(ctx, compileCall)
 			result.ToolsExecuted = append(result.ToolsExecuted, "compile")
 
-			if compileErr != nil {
-				errorMsg := compileErr.Error()
+			// Check compilation result
+			compileSuccess := strings.Contains(compileResult, `"success": true`) || strings.Contains(compileResult, "Compilation successful")
+
+			if compileErr != nil || !compileSuccess {
+				errorMsg := ""
+				targetFile := compileTarget
+
+				if compileErr != nil {
+					errorMsg = compileErr.Error()
+				} else {
+					// ✅ ROBUST FIX: Parse structured errors from compile tool JSON
+					// The compile tool provides structured error objects with file/line/message
+					var result map[string]interface{}
+					if err := json.Unmarshal([]byte(compileResult), &result); err == nil {
+						// Extract structured errors array
+						if errorsArray, ok := result["errors"].([]interface{}); ok && len(errorsArray) > 0 {
+							// Build clean error message from structured data
+							var errorLines []string
+							for _, errObj := range errorsArray {
+								if errMap, ok := errObj.(map[string]interface{}); ok {
+									file := errMap["file"].(string)
+									line := int(errMap["line"].(float64))
+									message := errMap["message"].(string)
+
+									errorLines = append(errorLines, fmt.Sprintf("%s:%d: %s", file, line, message))
+
+									// Use the FIRST error's file as the target to fix
+									if targetFile == compileTarget {
+										// Make absolute path
+										if !filepath.IsAbs(file) {
+											targetFile = filepath.Join(compileTarget, file)
+										} else {
+											targetFile = file
+										}
+									}
+								}
+							}
+							errorMsg = strings.Join(errorLines, "\n")
+							fmt.Printf("[AgentExecutor] ✓ Extracted %d structured errors, target file: %s\n",
+								len(errorsArray), targetFile)
+						} else {
+							// Fallback: use raw output field
+							if output, ok := result["output"].(string); ok && output != "" {
+								errorMsg = output
+								fmt.Printf("[AgentExecutor] Using raw output field from JSON\n")
+							} else {
+								errorMsg = compileResult
+								fmt.Printf("[AgentExecutor] No structured errors, using full result\n")
+							}
+						}
+					} else {
+						errorMsg = compileResult
+						fmt.Printf("[AgentExecutor] Failed to parse JSON: %v\n", err)
+					}
+				}
 
 				// ✅ RECORD ERROR IN TASKCONTEXT for learning
 				if ate.taskContext != nil {
@@ -307,11 +418,23 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 					// Add error context to conversation for LLM to fix
 					conversationHistory = append(conversationHistory, llm.Message{
 						Role:    "assistant",
-						Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"target": "%s"}}`, compileTarget),
+						Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"path": "%s"}}`, compileTarget), // ✅ FIX: Use "path" not "target"
 					})
+					// ✅ INJECT FILE CONTENT: Read the target file and inject into prompt
+					fixPrompt := analysis.FormatFixPrompt(errorMsg)
+					if targetFile != "" && targetFile != compileTarget {
+						if content, err := os.ReadFile(targetFile); err == nil {
+							fixPrompt += fmt.Sprintf("\n\n**Current File Content** (%s):\n```go\n%s\n```\n\n", targetFile, string(content))
+							fixPrompt += "**CRITICAL: Use edit_line tool ONLY**\n"
+							fixPrompt += "Extract line number from error, then call: {\"tool\": \"edit_line\", \"arguments\": {\"path\": \"...\", \"line\": N, \"new_content\": \"fixed line\"}}\n"
+						} else {
+							fmt.Printf("[AgentExecutor] Warning: Could not read %s for fix context: %v\n", targetFile, err)
+						}
+					}
+
 					conversationHistory = append(conversationHistory, llm.Message{
 						Role:    "user",
-						Content: analysis.FormatFixPrompt(errorMsg),
+						Content: fixPrompt,
 					})
 
 					// Continue to next iteration - LLM will attempt to fix
@@ -336,17 +459,25 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 					}
 
 					// Send feedback requesting fix task
+
 					feedbackCtx := map[string]interface{}{
-						"error_message":  errorMsg,
+						// Required fields for dependency handler
+						"dependency_description": fmt.Sprintf("Fix %s in %s", analysis.ErrorType, filepath.Base(targetFile)),
+						"dependency_type":        "code",
+						// Additional context
+						"error_message":  errorMsg, // Clean, structured error message
 						"error_type":     analysis.ErrorType,
 						"severity":       string(analysis.Severity),
 						"affected_files": analysis.FilesCount,
 						"error_count":    analysis.ErrorCount,
-						"target_path":    compileTarget,
+						"target_path":    compileTarget, // Directory
+						"target_file":    targetFile,    // ✅ CRITICAL: Specific file to fix
 						"suggestion":     analysis.Suggestion,
 					}
 
-					err := baseAgent.SendFeedback(ctx,
+					// ✅ Use SendAndWait to block until fix task completes
+					fmt.Printf("[AgentExecutor] Sending feedback and waiting for fix task...\n")
+					err := baseAgent.SendFeedbackAndWait(ctx,
 						FeedbackTypeDependencyNeeded,
 						FeedbackSeverityCritical,
 						fmt.Sprintf("Compilation errors need fixing: %s", analysis.ErrorType),
@@ -354,10 +485,46 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 						"Create a fix task to resolve compilation errors")
 
 					if err != nil {
-						fmt.Printf("[AgentExecutor] Warning: Failed to send feedback: %v\n", err)
+						// Fix task failed
+						fmt.Printf("[AgentExecutor] Fix task failed: %v\n", err)
+						result.Error = fmt.Sprintf("Compilation failed and fix task failed: %v", err)
+						return result, fmt.Errorf("compilation and fix both failed: %w", err)
 					}
+
+					// ✅ Fix task succeeded! Compile again to verify
+					fmt.Printf("[AgentExecutor] Fix task completed - recompiling to verify...\n")
+					recompileCall := ToolCall{
+						Tool: "compile",
+						Arguments: map[string]interface{}{
+							"path": compileTarget,
+						},
+					}
+
+					recompileResult, recompileErr := ate.executor.Execute(ctx, recompileCall)
+					result.ToolsExecuted = append(result.ToolsExecuted, "compile")
+
+					// Debug logging
+					fmt.Printf("[AgentExecutor] Recompile result: err=%v, success_in_json=%v\n",
+						recompileErr, strings.Contains(recompileResult, `"success": true`))
+					if !strings.Contains(recompileResult, `"success": true`) {
+						fmt.Printf("[AgentExecutor] Recompile output: %s\n", recompileResult)
+					}
+
+					if recompileErr != nil || !strings.Contains(recompileResult, `"success": true`) {
+						// Still failing after fix
+						result.Error = fmt.Sprintf("Fix task completed but compilation still fails: %v", recompileErr)
+						return result, fmt.Errorf("post-fix compilation failed")
+					}
+
+					// ✅ SUCCESS! Fixed and recompiled successfully
+					result.ToolResults = append(result.ToolResults, recompileResult)
+					printSuccess("Code fixed and compiled successfully!")
+					result.Success = true
+					result.Output = fmt.Sprintf("Code generated, fixed, and compiled successfully.\n\nTools used: %v", result.ToolsExecuted)
+					return result, nil
 				}
 
+				// Compilation failed but no fix task (shouldn't happen)
 				result.Error = fmt.Sprintf("Compilation failed: %v", compileErr)
 				return result, fmt.Errorf("compilation failed: %w", compileErr)
 			}
@@ -367,33 +534,21 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			// Update conversation history with the compile action
 			conversationHistory = append(conversationHistory, llm.Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"target": "%s"}}`, compileTarget),
+				Content: fmt.Sprintf(`{"tool": "compile", "arguments": {"path": "%s"}}`, compileTarget),
 			})
 			conversationHistory = append(conversationHistory, llm.Message{
 				Role:    "user",
 				Content: fmt.Sprintf("Tool 'compile' executed successfully (auto-injected). Result:\n\n%s", compileResult),
 			})
 
-			// Check compile result
-			isCompileSuccess := strings.Contains(compileResult, `"success": true`) || strings.Contains(compileResult, "Compilation successful")
-			if isCompileSuccess {
-				printStatus("Compilation successful")
-
-				// ATOMIC TASK PRINCIPLE: Exit immediately after successful compilation
-				// Each subtask should do ONE thing: generate 1 file, make 1 change
-				// ManagerAgent orchestrates the sequence of subtasks
-				result.Success = true
-				result.Output = fmt.Sprintf("Code generated and compiled successfully.\n\nTools used: %v", result.ToolsExecuted)
-				return result, nil
-			} else {
-				// Compile had errors - ATOMIC TASK PRINCIPLE: File is generated, task complete
-				// Don't try to fix compile errors here - that would violate atomic task principle
-				// If fixes needed, ManagerAgent should create a new "fix compile errors" subtask
-				printStatus("Compilation failed - task complete (file generated)")
-				result.Success = true // File was generated and written
-				result.Output = fmt.Sprintf("Code file generated.\n\nCompilation errors detected:\n%s\n\nTools used: %v", compileResult, result.ToolsExecuted)
-				return result, nil
-			}
+			// ✅ SUCCESS: Compilation worked!
+			// ATOMIC TASK PRINCIPLE: Exit immediately after successful compilation
+			// Each subtask should do ONE thing: generate 1 file, make 1 change
+			// ManagerAgent orchestrates the sequence of subtasks
+			printStatus("Compilation successful")
+			result.Success = true
+			result.Output = fmt.Sprintf("Code generated and compiled successfully.\n\nTools used: %v", result.ToolsExecuted)
+			return result, nil
 		}
 
 		// Add this exchange to conversation history

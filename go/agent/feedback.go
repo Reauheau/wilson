@@ -82,6 +82,40 @@ func (fb *FeedbackBus) Send(feedback *AgentFeedback) error {
 	}
 }
 
+// SendAndWait sends feedback and waits for it to be processed (synchronous)
+// Returns the handler's error result
+func (fb *FeedbackBus) SendAndWait(ctx context.Context, feedback *AgentFeedback) error {
+	feedback.CreatedAt = time.Now()
+
+	// Get handler immediately (before sending to channel)
+	fb.mu.RLock()
+	handler, exists := fb.handlers[feedback.FeedbackType]
+	fb.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("no handler for feedback type: %s", feedback.FeedbackType)
+	}
+
+	// Persist feedback (still async)
+	if fb.db != nil {
+		go func() {
+			if err := fb.persistFeedback(feedback); err != nil {
+				fmt.Printf("[FeedbackBus] Failed to persist feedback: %v\n", err)
+			}
+		}()
+	}
+
+	// Execute handler synchronously
+	handlerErr := handler(ctx, feedback)
+
+	// Update processed status
+	if fb.db != nil {
+		fb.updateFeedbackProcessed(feedback, handlerErr)
+	}
+
+	return handlerErr
+}
+
 // RegisterHandler registers a handler for a feedback type
 func (fb *FeedbackBus) RegisterHandler(feedbackType FeedbackType, handler FeedbackHandler) {
 	fb.mu.Lock()

@@ -24,21 +24,21 @@ func (v *CodeTaskVerifier) Verify(ctx context.Context, execResult *ExecutionResu
 		return fmt.Errorf("verification failed: no tools were executed")
 	}
 
-	// Check 2: File creation tools were used
+	// Check 2: File creation/modification tools were used
 	hasFileCreation := false
 	for _, tool := range execResult.ToolsExecuted {
-		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" {
+		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" || tool == "edit_line" {
 			hasFileCreation = true
 			break
 		}
 	}
 
 	if !hasFileCreation {
-		return fmt.Errorf("verification failed: no file creation tools were used (expected write_file, modify_file, or append_to_file)")
+		return fmt.Errorf("verification failed: no file creation/modification tools were used (expected write_file, modify_file, append_to_file, or edit_line)")
 	}
 
 	// Check 3: Try to extract file paths from tool results and verify they exist
-	createdFiles := v.extractCreatedFiles(execResult)
+	createdFiles := v.ExtractCreatedFiles(execResult)
 	if len(createdFiles) == 0 {
 		// This might be okay if files were created but we can't detect them
 		// Don't fail on this - just warn
@@ -64,18 +64,20 @@ func (v *CodeTaskVerifier) Verify(ctx context.Context, execResult *ExecutionResu
 	return nil
 }
 
-// extractCreatedFiles tries to find file paths in tool results
-func (v *CodeTaskVerifier) extractCreatedFiles(execResult *ExecutionResult) []string {
+// ExtractCreatedFiles tries to find file paths in tool results
+// Made public so CodeAgent can use it for dependency tracking
+func (v *CodeTaskVerifier) ExtractCreatedFiles(execResult *ExecutionResult) []string {
 	files := []string{}
 
 	for i, tool := range execResult.ToolsExecuted {
-		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" {
+		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" || tool == "edit_line" {
 			// Tool result might contain the file path
 			if i < len(execResult.ToolResults) {
 				result := execResult.ToolResults[i]
 
 				// Try to extract path from common patterns
-				// Pattern 1: Look for "path": "/some/path" in JSON
+				// Pattern
+				//1: Look for "path": "/some/path" in JSON
 				if strings.Contains(result, `"path"`) || strings.Contains(result, `'path'`) {
 					// Find the path value
 					startIdx := strings.Index(result, `"path"`)
@@ -205,10 +207,10 @@ func (v *TestTaskVerifier) Verify(ctx context.Context, execResult *ExecutionResu
 		return fmt.Errorf("verification failed: no tools were executed")
 	}
 
-	// Check 2: File creation tools were used for test files
+	// Check 2: File creation/modification tools were used for test files
 	hasTestFileCreation := false
 	for i, tool := range execResult.ToolsExecuted {
-		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" {
+		if tool == "write_file" || tool == "modify_file" || tool == "append_to_file" || tool == "edit_line" {
 			// Check if it's a test file
 			if i < len(execResult.ToolResults) {
 				result := execResult.ToolResults[i]
