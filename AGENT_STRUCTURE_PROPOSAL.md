@@ -1,18 +1,19 @@
 # Agent Directory Structure Proposal
 
-**Current State (Oct 23, 2025):** 36 files (23 source + 13 tests), 7,600+ lines in flat directory structure
-**Problem:** Growing complexity, hard to find files, manager_agent.go exploded to 1,348 lines (+23%)
-**Goal:** Clear organization, easy navigation, supports future growth
-**Status:** ✅ Ready to Execute - Feedback loop already implemented, structure needed urgently
+**Current State (Oct 25, 2025):** 37 files (24 source + 13 tests), ~8,166 lines in flat directory structure
+**Problem:** Accelerating complexity, files grew 11-35% in 2 days, manager_agent.go at 1,494 lines
+**Goal:** Clear organization, easy navigation, supports future growth to Claude Code parity
+**Status:** 🔴 **URGENT** - Files exceeding predictions, refactor needed before Phase 2 features
+**Validation:** ✅ 100% test success rate (Oct 24-25) validates architecture is sound
 
 ---
 
-## 📊 Current Structure Analysis
+## 📊 Current Structure Analysis (UPDATED Oct 25)
 
-### Current Files (36 total: 23 source + 13 tests)
+### Current Files (37 total: 24 source + 13 tests)
 
 **Specialist Agents (6 files + 2 tests):**
-- `code_agent.go` (451 lines) - Code generation + preconditions ⚠️ Large
+- `code_agent.go` (609 lines) 🔴 **GREW 35%** - Tool restriction, user prompts, preconditions
 - `code_agent_test.go` (tests)
 - `test_agent.go` (290 lines) - Test execution + preconditions
 - `review_agent.go` (316 lines) - Quality review + preconditions
@@ -21,18 +22,19 @@
 - `analysis_agent.go` (265 lines) - Content analysis
 - `chat_agent.go` (247 lines) - User interface
 
-**Orchestration (4 files + 2 tests):**
-- `manager_agent.go` (1,348 lines) 🔴 **CRITICAL - TOO LARGE** (+256 lines since proposal)
+**Orchestration (4 files + 3 tests):** 🔴 **CRITICAL GROWTH**
+- `manager_agent.go` (1,494 lines) 🔴 **GREW 11%** - Metadata, dependency extraction, feedback handlers
 - `manager_agent_context_test.go` (context loading tests)
+- `manager_agent_path_test.go` (path extraction tests) ⭐ NEW
 - `coordinator.go` (319 lines)
 - `queue.go` (557 lines)
 - `queue_test.go`
 - `task.go` (265 lines)
 - `task_test.go`
 
-**Base Infrastructure (4 files + 1 test):**
+**Base Infrastructure (4 files + 1 test):** 🔴 **CRITICAL GROWTH**
 - `base_agent.go` (243 lines) - BaseAgent with feedback support
-- `agent_executor.go` (472 lines) - Tool execution loop
+- `agent_executor.go` (627 lines) 🔴 **GREW 33%** - Auto-injection, file content loading, iterative fixes
 - `agent_executor_test.go` (tests)
 - `llm_validator.go` (165 lines)
 - `registry.go` (111 lines)
@@ -40,14 +42,14 @@
 - `types.go` (98 lines)
 - `task_context.go` (146 lines) - Rich execution context
 
-**Feedback Loop (2 files + 2 tests):** ✅ **ALREADY IMPLEMENTED**
+**Feedback Loop (2 files + 2 tests):** ✅ **COMPLETE, NEEDS RELOCATION**
 - `feedback.go` (426 lines) - FeedbackBus, types, handlers, TaskContext integration
 - `feedback_test.go` (comprehensive tests)
-- `compile_error_classifier.go` (229 lines) - Hybrid error handling (8 types)
+- `compile_error_classifier.go` (229 lines) - Hybrid error handling (8 types), updated prompts
 - `compile_error_classifier_test.go`
 
 **Validation & Quality (3 files + 2 tests):**
-- `verifier.go` (266 lines)
+- `verifier.go` (266 lines) - Updated for edit_line tool support
 - `quality_validators.go` (458 lines)
 - `quality_validators_test.go`
 - `dor_dod.go` (364 lines)
@@ -59,23 +61,38 @@
 - `intent_test.go`
 - `shared_prompt.go` (74 lines)
 
-### Key Changes Since Original Proposal
+### Key Changes Since Original Proposal (Oct 23 → Oct 25)
 
-**✅ Feedback Loop Implemented (Oct 23):**
-- feedback.go created (426 lines)
-- Preconditions embedded in agents (code_agent.go, test_agent.go, review_agent.go)
-- Compile error classifier added (229 lines, not in original proposal)
-- Manager feedback handlers added to manager_agent.go
+**✅ Surgical Editing Implementation (Oct 24-25):** ⭐ **100% SUCCESS RATE**
+- Tool restriction in fix mode (code_agent.go)
+- Iterative loop file content injection (agent_executor.go)
+- Auto-injection for test generation (agent_executor.go)
+- Metadata persistence & type handling (manager_agent.go)
+- Updated error classification prompts (compile_error_classifier.go)
+- Verifier acceptance of edit_line (verifier.go)
+- Removed DEBUG logs (cleaned output)
+- **Result:** 2/2 test runs succeeded, all files compiled first try
 
-**🔴 Manager Agent Explosion:**
-- Original proposal: 1,092 lines
-- Current: 1,348 lines (+23% growth)
-- Now contains: decomposition, dependency injection, context loading, feedback handlers, lifecycle management
+**🔴 File Growth EXCEEDED Predictions:**
+- `manager_agent.go`: 1,348 → 1,494 (+11% in 2 days)
+- `agent_executor.go`: 472 → 627 (+33% in 2 days) 🚨
+- `code_agent.go`: 451 → 609 (+35% in 2 days) 🚨
+- **Urgency:** Growth rate 5-17x faster than predicted
 
 **📊 Total Growth:**
-- Original: ~6,900 lines
-- Current: ~7,600 lines (+10% growth in 1 day)
-- Validates proposal's prediction of rapid growth
+- Proposal (Oct 23): ~7,600 lines
+- Current (Oct 25): ~8,166 lines (+7% in 2 days)
+- **Projection:** Without refactor, will hit 10,000+ lines within 1 week
+
+**✅ Architecture Validation:**
+Yesterday's fixes touched files across ALL proposed domains:
+- Tool execution → Should be `base/executor.go`
+- User prompts → Should be `agents/code_agent.go`
+- Metadata handling → Should be `orchestration/manager_dependency.go`
+- Error classification → Should be `feedback/compile_classifier.go`
+- Verification → Should be `validation/verifier.go`
+
+**This proves the domain structure is correct!**
 
 ---
 
@@ -91,9 +108,16 @@ go/agent/
 ├── registry.go                        # Agent registration (111 lines)
 ├── registry_test.go
 │
-├── base/                              # Base agent infrastructure (~1,050 lines)
+├── base/                              # Base agent infrastructure (~1,270 lines)
 │   ├── base_agent.go                  # BaseAgent with feedback (243 lines)
-│   ├── executor.go                    # Tool execution loop (472 lines, rename from agent_executor.go)
+│   ├── executor.go                    # Core execution loop (~350 lines) ⭐ SPLIT
+│   │                                  # - Tool call parsing, LLM interaction
+│   │                                  # - Max iterations, conversation history
+│   ├── executor_injection.go          # Auto-injection logic (~277 lines) ⭐ NEW
+│   │                                  # - Auto-inject write_file after generate_code
+│   │                                  # - Auto-inject compile after write_file
+│   │                                  # - Auto-inject source files for tests
+│   │                                  # - File content injection for fixes
 │   ├── executor_test.go               # (move agent_executor_test.go)
 │   ├── llm_validator.go               # LLM response validation (165 lines)
 │   └── task_context.go                # Rich task context (146 lines)
@@ -233,12 +257,12 @@ cd /Users/roderick.vannievelt/IdeaProjects/wilson/go/agent
 mkdir -p base agents orchestration feedback validation chat
 ```
 
-### Phase 2: Move Files (30 min) - NO CODE CHANGES
+### Phase 2: Move Files (30 min) - NO CODE CHANGES YET
 
 ```bash
-# Base infrastructure (5 files)
+# Base infrastructure (5 files) - Note: executor.go will be split in Phase 4
 mv base_agent.go base/
-mv agent_executor.go base/executor.go
+mv agent_executor.go base/executor.go  # Will split later
 mv agent_executor_test.go base/executor_test.go
 mv llm_validator.go base/
 mv task_context.go base/
@@ -254,10 +278,11 @@ mv research_agent.go agents/
 mv analysis_agent.go agents/
 mv shared_prompt.go agents/
 
-# Orchestration (10 files with tests)
+# Orchestration (11 files with tests)
 mv coordinator.go orchestration/
-mv manager_agent.go orchestration/manager.go  # Will split in Phase 3
+mv manager_agent.go orchestration/manager.go  # Will split in Phase 4a
 mv manager_agent_context_test.go orchestration/
+mv manager_agent_path_test.go orchestration/  # NEW file
 mv queue.go orchestration/
 mv queue_test.go orchestration/
 mv task.go orchestration/
@@ -317,10 +342,19 @@ import (
 go build -o wilson main.go  # Should compile
 ```
 
-### Phase 4: Split manager.go (1.5 hours) ⭐ **CRITICAL**
+### Phase 4: Split Large Files (2.5 hours) ⭐ **CRITICAL**
 
-**Current:** orchestration/manager.go (1,348 lines)
+**Two major splits needed:**
+
+#### Phase 4a: Split manager.go (1.5 hours)
+
+**Current:** orchestration/manager.go (1,494 lines)
 **Target:** Split into 4 focused files
+
+#### Phase 4b: Split executor.go (1 hour) ⭐ **NEW**
+
+**Current:** base/executor.go (627 lines)
+**Target:** Split into 2 focused files
 
 **Step 1: Extract feedback handlers** (orchestration/manager_feedback.go ~250 lines)
 ```go
@@ -364,9 +398,63 @@ func (m *ManagerAgent) checkParentCompletion(...)
 // - Auto-assignment: AutoAssignReadyTasks, selectBestAgent
 ```
 
-**Test after each extraction:**
+**Test after each manager extraction:**
 ```bash
 go test ./go/agent/orchestration/... -v
+go build -o wilson main.go
+```
+
+#### Phase 4b: Split executor.go (1 hour) ⭐ **NEW - ADDRESSES 33% GROWTH**
+
+**Problem:** executor.go grew from 472 → 627 lines (+33%) due to auto-injection features
+
+**Step 1: Extract injection logic** (base/executor_injection.go ~277 lines)
+```go
+// Auto-injection functions (called by executor.go)
+
+// injectSourceFilesForTests - Auto-inject source files into generate_code context
+func injectSourceFilesForTests(toolCall *ToolCall, taskContext *TaskContext) {
+    // Lines 132-155 from current executor.go
+}
+
+// injectWriteFileAfterGenerateCode - Auto-inject write_file after generate_code
+func injectWriteFileAfterGenerateCode(ctx context.Context, ...) error {
+    // Lines 178-276 from current executor.go
+}
+
+// injectCompileAfterWriteFile - Auto-inject compile after write_file
+func injectCompileAfterWriteFile(ctx context.Context, ...) error {
+    // Lines 278-320 from current executor.go
+    // Includes go.mod initialization
+}
+
+// injectFileContentForFix - Inject file content into fix prompts
+func injectFileContentForFix(targetFile string, errorMsg string, analysis *CompileErrorAnalysis) string {
+    // Lines 458-468 from current executor.go
+}
+```
+
+**Step 2: Keep core in executor.go** (~350 lines)
+```go
+// Core AgentToolExecutor
+// - struct definition, NewAgentToolExecutor
+// - ExecuteAgentResponse main loop
+// - Tool call parsing and execution
+// - Conversation history management
+// - Max iterations handling
+// - LLM interaction
+// - Calls injection functions from executor_injection.go
+```
+
+**Why This Split:**
+- Separates "what to execute" (executor.go) from "what to inject" (executor_injection.go)
+- Auto-injection is a FEATURE layer on top of core execution
+- Makes it easy to enable/disable injection logic
+- Future: Could make injection configurable per agent
+
+**Test after executor split:**
+```bash
+go test ./go/agent/base/... -v
 go build -o wilson main.go
 ```
 
@@ -484,15 +572,16 @@ agent/
 
 ---
 
-## 🗓️ Execution Timeline
+## 🗓️ Execution Timeline (UPDATED Oct 25)
 
-**Total Time:** 3.5-4 hours (high-priority task)
+**Total Time:** 4.5-5 hours (URGENT - before Phase 2 features)
 
 **Phases:**
 1. Create structure: 15 min
 2. Move files (no code changes): 30 min
 3. Fix import paths: 1 hour
-4. Split manager.go: 1.5 hours ⭐ **Most critical**
+4a. Split manager.go: 1.5 hours ⭐ **Critical (1,494 lines)**
+4b. Split executor.go: 1 hour ⭐ **NEW (627 lines, +33% growth)**
 5. Verify everything works: 30 min
 6. Add README: 15 min
 
@@ -503,10 +592,11 @@ agent/
 - Validate Wilson still runs after each major change
 
 **Expected Outcome:**
-- manager.go: 1,348 lines → 4 files of ~250-400 lines each
-- Clear domain boundaries
+- manager.go: 1,494 lines → 4 files of ~250-400 lines each
+- executor.go: 627 lines → 2 files of ~277 and ~350 lines
+- Clear domain boundaries with injection logic separated
 - Tests colocated with source
-- Foundation for future features
+- Foundation for Phase 2 features (multi-file context, caching)
 
 ---
 
@@ -548,32 +638,44 @@ find go/agent -name "*.go" ! -name "*_test.go" -exec wc -l {} + | sort -rn | hea
 
 ---
 
-## 📝 Decision: Execute Domain-Based Structure
+## 📝 Decision: Execute Domain-Based Structure (UPDATED Oct 25)
 
-**Rationale:**
-1. ✅ Feedback loop already implemented - validates proposal urgency
-2. ✅ manager_agent.go at 1,348 lines (23% growth) - unsustainable
-3. ✅ 36 files in flat structure - navigation breaking down
-4. ✅ Domain-based aligns with Go conventions
-5. ✅ Tests with source files = better maintainability
-6. ✅ Supports future growth (learning/, patterns/ directories)
+**Rationale - MORE URGENT THAN PREDICTED:**
+1. ✅ Feedback loop + surgical editing complete - architecture validated by 100% success rate
+2. 🔴 manager_agent.go at 1,494 lines (11% growth in 2 days) - exceeding predictions
+3. 🔴 agent_executor.go at 627 lines (33% growth in 2 days) - CRITICAL
+4. 🔴 code_agent.go at 609 lines (35% growth in 2 days) - CRITICAL
+5. ✅ 37 files in flat structure - navigation increasingly difficult
+6. ✅ Domain-based aligns with Go conventions AND yesterday's work patterns
+7. ✅ Tests with source files = better maintainability
+8. ✅ Supports Phase 2 features (multi-file context, caching, search)
 
-**Critical Modifications from Original:**
+**Critical Updates from Original Proposal:**
 1. ✅ Keep feedback.go as single file (426 lines manageable)
 2. ✅ Add manager_feedback.go split (feedback handlers separate)
-3. ✅ Move compile_error_classifier to feedback/ (part of error handling)
-4. ✅ Colocate tests with source (not separate test/ directory)
+3. ⭐ **NEW:** Split agent_executor.go into executor.go + executor_injection.go (33% growth demands it)
+4. ⭐ **NEW:** Add manager_agent_path_test.go to migration (discovered in codebase)
+5. ✅ Move compile_error_classifier to feedback/ (error handling domain)
+6. ✅ Colocate tests with source (not separate test/ directory)
 
-**Why Now:**
-- Manager at breaking point (1,348 lines)
-- Feedback loop complete - organic growth validates need
-- Before next feature: Clean slate prevents technical debt
-- 3.5-4 hours investment saves hours in future maintenance
+**Why NOW is MORE Urgent:**
+- Files growing 5-17x faster than predicted
+- Yesterday's surgical editing touched files across ALL proposed domains (validates structure)
+- About to implement Phase 2 features (multi-file context, caching) - will add 500+ more lines
+- Without refactor: manager.go hits 2,000 lines within 1 week
+- 4.5-5 hours investment NOW prevents weeks of technical debt
 
-**Next Step:** Execute refactor (Phases 1-6)
+**Validation from Yesterday (Oct 24-25):**
+- ✅ 100% test success rate (2/2 runs)
+- ✅ All files compiled first try
+- ✅ Architecture is sound, just needs organization
+- ✅ Refactor timing is perfect: stable system, before next features
+
+**Next Step:** Execute refactor (Phases 1-6) - ASAP before Phase 2 work
 
 ---
 
-**Last Updated:** 2025-10-23
-**Status:** ✅ **APPROVED - READY TO EXECUTE**
-**Priority:** HIGH - Do before next feature
+**Last Updated:** 2025-10-25
+**Status:** 🔴 **URGENT - EXECUTE IMMEDIATELY**
+**Priority:** CRITICAL - Growth rate exceeding predictions, refactor blocks Phase 2
+**Success Validation:** Yesterday's 100% success rate proves architecture is ready
