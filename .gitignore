@@ -47,9 +47,10 @@ temp/
 *.gguf
 models/
 
-# IDEs
+# IDEs and AI assistants
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
