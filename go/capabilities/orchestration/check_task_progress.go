@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	agentpkg "wilson/agent"
+	"wilson/agent/orchestration"
 	"wilson/core/registry"
 	. "wilson/core/types"
 )
@@ -41,7 +41,7 @@ func (t *CheckTaskProgressTool) Validate(args map[string]interface{}) error {
 }
 
 func (t *CheckTaskProgressTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
-	coordinator := agentpkg.GetGlobalCoordinator()
+	coordinator := orchestration.GetGlobalCoordinator()
 	if coordinator == nil {
 		return "", fmt.Errorf("agent coordinator not initialized")
 	}

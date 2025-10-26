@@ -21,9 +21,6 @@ type Agent interface {
 	// Execute executes a task and returns the result
 	Execute(ctx context.Context, task *Task) (*Result, error)
 
-	// ExecuteWithContext executes a task with full TaskContext (preferred method)
-	ExecuteWithContext(ctx context.Context, taskCtx *TaskContext) (*Result, error)
-
 	// AllowedTools returns the tools this agent can use (empty = all tools)
 	AllowedTools() []string
 }
@@ -95,4 +92,38 @@ type AgentInfo struct {
 	CanDelegate  bool     `json:"can_delegate"`
 	AllowedTools []string `json:"allowed_tools"`
 	Status       string   `json:"status"` // "available", "busy", "offline"
+}
+
+// FeedbackType categorizes agent feedback
+type FeedbackType string
+
+const (
+	FeedbackTypeDependencyNeeded FeedbackType = "dependency_needed"
+	FeedbackTypeBlocker          FeedbackType = "blocker"
+	FeedbackTypeContextNeeded    FeedbackType = "context_needed"
+	FeedbackTypeRetryRequest     FeedbackType = "retry_request"
+	FeedbackTypeSuccess          FeedbackType = "success"
+)
+
+// FeedbackSeverity indicates urgency
+type FeedbackSeverity string
+
+const (
+	FeedbackSeverityInfo     FeedbackSeverity = "info"
+	FeedbackSeverityWarning  FeedbackSeverity = "warning"
+	FeedbackSeverityCritical FeedbackSeverity = "critical"
+)
+
+// AgentFeedback represents feedback from an agent with full execution context
+// Note: TaskContext is stored as interface{} to avoid import cycles
+type AgentFeedback struct {
+	TaskID       string                 `json:"task_id"`
+	AgentName    string                 `json:"agent_name"`
+	FeedbackType FeedbackType           `json:"feedback_type"`
+	Severity     FeedbackSeverity       `json:"severity"`
+	Message      string                 `json:"message"`
+	Context      map[string]interface{} `json:"context"` // Additional context
+	Suggestion   string                 `json:"suggestion"`
+	TaskContext  interface{}            `json:"task_context"` // *base.TaskContext - stored as interface{} to avoid import cycle
+	CreatedAt    time.Time              `json:"created_at"`
 }

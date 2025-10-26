@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	agentpkg "wilson/agent"
+	"wilson/agent/orchestration"
 	"wilson/core/registry"
 	. "wilson/core/types"
 )
@@ -50,7 +50,7 @@ func (t *OrchestrateCodeTaskTool) Execute(ctx context.Context, args map[string]i
 	fmt.Printf("\n[ORCHESTRATE_CODE_TASK] Called with request: %s\n", request)
 	fmt.Printf("[ORCHESTRATE_CODE_TASK] This will trigger HandleUserRequest\n\n")
 
-	coordinator := agentpkg.GetGlobalCoordinator()
+	coordinator := orchestration.GetGlobalCoordinator()
 	if coordinator == nil {
 		return "", fmt.Errorf("agent coordinator not initialized")
 	}

@@ -2,129 +2,129 @@ package chatbot_test
 
 import (
 	"testing"
-	"wilson/agent"
+	"wilson/agent/chat"
 )
 
 func TestClassifyIntent(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected agent.Intent
+		expected chat.Intent
 	}{
 		// Chat intents
 		{
 			name:     "Greeting",
 			input:    "Hello, how are you?",
-			expected: agent.IntentChat,
+			expected: chat.IntentChat,
 		},
 		{
 			name:     "Weather question",
 			input:    "What's the weather like?",
-			expected: agent.IntentChat,
+			expected: chat.IntentChat,
 		},
 		{
 			name:     "Joke request",
 			input:    "Tell me a joke",
-			expected: agent.IntentChat,
+			expected: chat.IntentChat,
 		},
 		{
 			name:     "Personal statement",
 			input:    "I'm feeling good today",
-			expected: agent.IntentChat,
+			expected: chat.IntentChat,
 		},
 		{
 			name:     "Explanation request",
 			input:    "Can you explain what LLMs are?",
-			expected: agent.IntentChat,
+			expected: chat.IntentChat,
 		},
 
 		// Tool intents
 		{
 			name:     "List files",
 			input:    "list files in the current directory",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Show go files",
 			input:    "show me all go files",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Read file",
 			input:    "read main.go",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Find test files",
 			input:    "find all test files",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Search function",
 			input:    "search for main function",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Delete file",
 			input:    "delete old.txt",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Run tests",
 			input:    "run the tests",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Create directory",
 			input:    "create a dir called testdir",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Make directory full path",
 			input:    "could you create a dir in /Users/foo called bar?",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Create folder",
 			input:    "create folder myproject",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 		{
 			name:     "Make directory",
 			input:    "make directory output",
-			expected: agent.IntentTool,
+			expected: chat.IntentTool,
 		},
 
 		// Delegation intents
 		{
 			name:     "Build CLI tool",
 			input:    "build a CLI tool for task management",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 		{
 			name:     "Implement feature",
 			input:    "implement user authentication",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 		{
 			name:     "Refactor system",
 			input:    "refactor the agent system",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 		{
 			name:     "Fix bug",
 			input:    "fix the bug in the parser",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 		{
 			name:     "Create web scraper",
 			input:    "create a web scraper",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 		{
 			name:     "Add feature",
 			input:    "add feature for exporting data",
-			expected: agent.IntentDelegate,
+			expected: chat.IntentDelegate,
 		},
 	}
 
@@ -155,12 +155,12 @@ func TestClassifyIntent(t *testing.T) {
 
 func TestIntentString(t *testing.T) {
 	tests := []struct {
-		intent   agent.Intent
+		intent   chat.Intent
 		expected string
 	}{
-		{agent.IntentChat, "chat"},
-		{agent.IntentTool, "tool"},
-		{agent.IntentDelegate, "delegate"},
+		{chat.IntentChat, "chat"},
+		{chat.IntentTool, "tool"},
+		{chat.IntentDelegate, "delegate"},
 	}
 
 	for _, tt := range tests {

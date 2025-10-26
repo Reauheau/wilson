@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"fmt"
+	"wilson/agent/orchestration"
 
 	agentpkg "wilson/agent"
 	"wilson/core/registry"
@@ -38,7 +39,7 @@ func (t *AgentStatusTool) Validate(args map[string]interface{}) error {
 }
 
 func (t *AgentStatusTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
-	coordinator := agentpkg.GetGlobalCoordinator()
+	coordinator := orchestration.GetGlobalCoordinator()
 	registry := agentpkg.GetGlobalRegistry()
 
 	if coordinator == nil || registry == nil {

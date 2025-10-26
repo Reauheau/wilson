@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"wilson/agent"
+	"wilson/agent/agents"
+	"wilson/agent/chat"
+	"wilson/agent/orchestration"
 	"wilson/config"
 	contextpkg "wilson/context"
 	"wilson/core/registry"
@@ -128,7 +131,7 @@ func main() {
 	history := session.NewHistory(20)
 
 	// Create chat handler with the agent
-	chatHandler := agent.NewChatHandler(chatAgent, history, executor)
+	chatHandler := chat.NewChatHandler(chatAgent, history, executor)
 
 	// Track completed tasks for notifications
 	completedTasks := make(map[string]bool)
@@ -329,7 +332,7 @@ func initializeContextManager(cfg *config.Config) *contextpkg.Manager {
 }
 
 // initializeAgentSystem creates and configures the agent system (silent)
-func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) *agent.ChatAgent {
+func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) *agents.ChatAgent {
 	if llmMgr == nil || contextMgr == nil {
 		return nil
 	}
@@ -338,11 +341,11 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 	agentRegistry := agent.NewRegistry()
 
 	// Register agents
-	chatAgent := agent.NewChatAgent(llmMgr, contextMgr)
-	analysisAgent := agent.NewAnalysisAgent(llmMgr, contextMgr)
-	codeAgent := agent.NewCodeAgent(llmMgr, contextMgr)
-	testAgent := agent.NewTestAgent(llmMgr, contextMgr)
-	reviewAgent := agent.NewReviewAgent(llmMgr, contextMgr)
+	chatAgent := agents.NewChatAgent(llmMgr, contextMgr)
+	analysisAgent := agents.NewAnalysisAgent(llmMgr, contextMgr)
+	codeAgent := agents.NewCodeAgent(llmMgr, contextMgr)
+	testAgent := agents.NewTestAgent(llmMgr, contextMgr)
+	reviewAgent := agents.NewReviewAgent(llmMgr, contextMgr)
 
 	_ = agentRegistry.Register(chatAgent)
 	_ = agentRegistry.Register(analysisAgent)
@@ -351,7 +354,7 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 	_ = agentRegistry.Register(reviewAgent)
 
 	// Create coordinator
-	coordinator := agent.NewCoordinator(agentRegistry)
+	coordinator := orchestration.NewCoordinator(agentRegistry)
 
 	// Set LLM manager for model lifecycle (Phase 2)
 	coordinator.SetLLMManager(llmMgr)
@@ -360,7 +363,7 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 	// Use same database as context store for tasks
 	db := contextMgr.GetDB()
 	if db != nil {
-		managerAgent := agent.NewManagerAgent(db)
+		managerAgent := orchestration.NewManagerAgent(db)
 		managerAgent.SetLLMManager(llmMgr)
 		managerAgent.SetRegistry(agentRegistry)
 		coordinator.SetManager(managerAgent)
@@ -374,7 +377,7 @@ func initializeAgentSystem(llmMgr *llm.Manager, contextMgr *contextpkg.Manager) 
 
 	// Set globals
 	agent.SetGlobalRegistry(agentRegistry)
-	agent.SetGlobalCoordinator(coordinator)
+	orchestration.SetGlobalCoordinator(coordinator)
 
 	return chatAgent
 }

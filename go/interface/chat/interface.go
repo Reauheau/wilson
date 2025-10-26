@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"wilson/agent/orchestration"
 
 	"wilson/agent"
 	"wilson/ui"
@@ -121,7 +122,7 @@ func (i *Interface) PrintWelcome(banner string) {
 
 // CheckAndNotifyCompletedTasks checks for newly completed tasks and notifies the user
 func (i *Interface) CheckAndNotifyCompletedTasks(lastCheckedTasks map[string]bool) map[string]bool {
-	coordinator := agent.GetGlobalCoordinator()
+	coordinator := orchestration.GetGlobalCoordinator()
 	if coordinator == nil {
 		return lastCheckedTasks
 	}
@@ -148,7 +149,7 @@ func (i *Interface) CheckAndNotifyCompletedTasks(lastCheckedTasks map[string]boo
 
 // notifyTaskCompletion shows a notification that a background task completed
 func (i *Interface) notifyTaskCompletion(task *agent.Task) {
-	coordinator := agent.GetGlobalCoordinator()
+	coordinator := orchestration.GetGlobalCoordinator()
 	if coordinator == nil {
 		return
 	}
