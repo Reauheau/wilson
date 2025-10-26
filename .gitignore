@@ -18,7 +18,8 @@ go.work.sum
 vendor/
 bin/
 dist/
-build/
+/build/
+/go/build/
 
 # Wilson specific
 .wilson/
