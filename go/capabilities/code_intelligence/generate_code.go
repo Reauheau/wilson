@@ -116,6 +116,11 @@ func (t *GenerateCodeTool) Execute(ctx context.Context, args map[string]interfac
 		prompt.WriteString("IMPORTANT: Create separate functions/methods for business logic. ")
 		prompt.WriteString("Keep main() minimal - it should only call other functions. ")
 		prompt.WriteString("This ensures the code is testable.\n\n")
+
+		// ✅ CRITICAL: Prevent LLM from adding test functions to production code
+		prompt.WriteString("CRITICAL: Do NOT include test functions (TestXxx). ")
+		prompt.WriteString("Tests will be created separately in a different file. ")
+		prompt.WriteString("This file should contain ONLY production code.\n\n")
 	}
 
 	// Add requirements

@@ -198,6 +198,11 @@ func (a *CodeAgent) Execute(ctx context.Context, task *agent.Task) (*agent.Resul
 		a.llmManager,
 	)
 
+	// ✅ FIX: Get TaskContext from agent if available (set by ExecuteWithContext)
+	// This enables the feedback loop to work properly for compile error fixes
+	// Access currentContext field directly (no getter method exists)
+	taskCtx := a.GetCurrentContext()
+
 	execResult, err := executor.ExecuteAgentResponse(
 		ctx,
 		response,
@@ -205,7 +210,7 @@ func (a *CodeAgent) Execute(ctx context.Context, task *agent.Task) (*agent.Resul
 		userPrompt,
 		a.Purpose(),
 		task.ID, // Pass task ID for progress updates
-		nil,     // TaskContext not available in old Execute method
+		taskCtx, // Pass TaskContext for feedback loop support
 	)
 
 	if err != nil {

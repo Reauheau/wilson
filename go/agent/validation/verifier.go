@@ -130,9 +130,14 @@ func (v *CodeTaskVerifier) ExtractCreatedFiles(execResult *base.ExecutionResult)
 						}
 						if end > idx+1 {
 							path := result[idx:end]
-							// Only add if it looks like a real path (has multiple segments)
+							// Only add if it looks like a real FILE path (has multiple segments AND a file extension)
+							// This filters out directory paths like "/Users/foo/project"
 							if strings.Count(path, "/") >= 2 && !strings.Contains(path, "http") {
-								files = append(files, path)
+								// Must have a file extension (contains a dot after the last slash)
+								lastSlash := strings.LastIndex(path, "/")
+								if lastSlash != -1 && strings.Contains(path[lastSlash:], ".") {
+									files = append(files, path)
+								}
 							}
 						}
 						start = end

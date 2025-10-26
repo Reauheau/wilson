@@ -149,6 +149,11 @@ func (a *BaseAgent) SetTaskContext(taskCtx *TaskContext) {
 	a.currentContext = taskCtx
 }
 
+// GetCurrentContext returns the current task context (may be nil)
+func (a *BaseAgent) GetCurrentContext() *TaskContext {
+	return a.currentContext
+}
+
 // ConvertTaskContextToTask converts TaskContext to old Task format
 // Helper for concrete agents during transition period
 func (a *BaseAgent) ConvertTaskContextToTask(taskCtx *TaskContext) *agent.Task {

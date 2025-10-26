@@ -445,6 +445,19 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				}
 
 				// COMPLEX error OR max simple attempts exceeded → send feedback
+				if ate.taskContext == nil {
+					// No task context - can't use feedback loop, return error directly
+					fmt.Printf("[AgentExecutor] %s but no task context available - cannot create fix task\n",
+						func() string {
+							if analysis.Severity == feedback.ErrorSeverityComplex {
+								return "Complex error detected"
+							}
+							return "Max iterative fix attempts exceeded"
+						}())
+					result.Error = fmt.Sprintf("Compilation failed with %s: %s", analysis.ErrorType, errorMsg)
+					return result, fmt.Errorf("compilation failed: %s", analysis.ErrorType)
+				}
+
 				fmt.Printf("[AgentExecutor] %s - sending feedback for separate fix task\n",
 					func() string {
 						if analysis.Severity == feedback.ErrorSeverityComplex {
@@ -453,7 +466,7 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 						return "Max iterative fix attempts exceeded"
 					}())
 
-				if ate.taskContext != nil {
+				if true { // Always enter this block now that we've checked taskContext above
 					// Create base agent to send feedback
 					baseAgent := &BaseAgent{
 						name:           "AgentExecutor",
@@ -559,6 +572,21 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 			Role:    "assistant",
 			Content: fmt.Sprintf(`{"tool": "%s", "arguments": %s}`, toolCall.Tool, formatArgsForAgent(toolCall.Arguments)),
 		})
+
+		// ✅ CRITICAL FIX: Terminal tools should exit immediately, not ask LLM "what's next?"
+		// Delegation tools like orchestrate_code_task handle the entire task internally
+		// Asking the LLM for next steps causes it to hallucinate and call the tool again
+		terminalTools := map[string]bool{
+			"orchestrate_code_task": true,
+			"delegate_task":         true,
+		}
+
+		if terminalTools[toolCall.Tool] {
+			// Terminal tool completed - return immediately without asking LLM for next step
+			result.Success = true
+			result.Output = toolResult
+			return result, nil
+		}
 
 		// This code is now unreachable after successful compilation due to early return above
 		// Keeping it for non-compile tool feedback
