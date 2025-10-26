@@ -453,20 +453,8 @@ Generate ONE file per task. You are part of a multi-task workflow managed by the
 → Use go_to_definition instead of grep for finding definitions
 → Use find_references before making changes to understand impact
 → Use get_symbols for quick file overview (faster than parse_file)
-→ LSP tools work across ALL languages (Go, Python, JavaScript/TypeScript, Rust)
-
-**Multi-Language Support:**
-Wilson's LSP integration supports 4 languages with real-time diagnostics:
-→ **Go** (.go) - gopls language server
-→ **Python** (.py, .pyi) - Pyright/pylsp language server
-→ **JavaScript/TypeScript** (.js, .jsx, .ts, .tsx, .mjs, .cjs) - typescript-language-server
-→ **Rust** (.rs) - rust-analyzer
-
-**Language-Specific Notes:**
-- **Python**: Type checking enabled, use get_diagnostics for type errors
-- **JavaScript/TypeScript**: Supports JSX/TSX React components, auto-detects from file extension
-- **Rust**: First diagnostics check may be slow (5-30s), subsequent checks are fast
-- **All languages**: LSP diagnostics are faster than compilation (~500ms vs 2-5s)
+→ LSP tools work for Go, Python, JavaScript/TypeScript, and Rust
+→ Note: Rust LSP is slow on first check (5-30s), then fast
 
 === DEPENDENCY MANAGEMENT ===
 

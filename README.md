@@ -8,13 +8,14 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 
 - **Self-Healing Feedback Loop** - Automatic failure detection and recovery (93% success rate)
 - **Async Dual-Model Architecture** - Small chat model (always responsive) + large worker models (on-demand)
+- **Multi-Language LSP Support** - Real-time code intelligence for Go, Python, JavaScript/TypeScript, Rust
 - **Smart Error Handling** - 80% of compile errors auto-fixed in <5s, complex errors escalated intelligently
 - **Context-Aware Execution** - Tasks inherit full context (project_path, dependency files, error history)
 - **Multi-Agent Collaboration** - Research, Code, Test, and Review agents work together autonomously
 - **Atomic Task Execution** - Each task = 1 file, dependency injection, zero "max iterations" errors
 - **Resource Efficient** - Kill-after-task strategy: 4GB idle, 12GB active, back to 4GB when done
 - **Non-Blocking** - Chat with Wilson while background tasks execute
-- **Code Intelligence** - AST parsing, compilation loops, test execution
+- **Code Intelligence** - LSP diagnostics, navigation, AST parsing, compilation loops, test execution
 - **Quality Assurance** - Built-in DoR/DoD validation and precondition checks
 
 ## Architecture
@@ -122,6 +123,18 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 - Go 1.21+
 - [Ollama](https://ollama.ai) installed and running
 - 16GB+ RAM recommended (8GB minimum)
+
+**Optional (for multi-language LSP support):**
+- Language servers for non-Go languages:
+  ```bash
+  # Run the installation script
+  ./scripts/install_language_servers.sh
+
+  # Or install manually:
+  npm install -g pyright typescript-language-server typescript
+  pip3 install 'python-lsp-server[all]'
+  rustup component add rust-analyzer
+  ```
 
 **Optional (for MCP servers):**
 - Node.js 18+ and npm (for external tool integrations via MCP)
