@@ -14,10 +14,18 @@ import (
 	"wilson/agent"
 	"wilson/agent/agents"
 	"wilson/agent/orchestration"
+	code_intelligence "wilson/capabilities/code_intelligence" // Code generation
 	contextpkg "wilson/context"
 	"wilson/llm"
+	"wilson/lsp"
 
 	_ "github.com/mattn/go-sqlite3"
+	_ "wilson/capabilities/code_intelligence/analysis" // Code intelligence tools
+	_ "wilson/capabilities/code_intelligence/ast"      // AST tools
+	_ "wilson/capabilities/code_intelligence/build"    // Build tools
+	_ "wilson/capabilities/code_intelligence/quality"  // Quality tools
+	_ "wilson/capabilities/context"                    // Context tools
+	_ "wilson/capabilities/filesystem"                 // Filesystem tools
 )
 
 // TestE2E_ValidatorGeneration tests Wilson's ability to generate validators with tests
@@ -57,14 +65,30 @@ func TestE2E_ValidatorGeneration(t *testing.T) {
 	}
 	defer contextMgr.Close()
 
+	// Initialize LSP manager for code intelligence
+	lspManager := lsp.NewManager()
+	code_intelligence.SetLSPManager(lspManager)
+	defer lspManager.StopAll()
+
 	// Initialize LLM manager
 	llmMgr := llm.NewManager()
+	code_intelligence.SetLLMManager(llmMgr) // Required for generate_code tool
+
 	err = llmMgr.RegisterLLM(llm.PurposeCode, llm.Config{
 		Provider: "ollama",
 		Model:    "qwen2.5-coder:14b",
 	})
 	if err != nil {
 		t.Fatalf("Failed to register LLM: %v", err)
+	}
+
+	// Also register chat LLM (required for tool execution)
+	err = llmMgr.RegisterLLM(llm.PurposeChat, llm.Config{
+		Provider: "ollama",
+		Model:    "qwen2.5-coder:14b",
+	})
+	if err != nil {
+		t.Fatalf("Failed to register chat LLM: %v", err)
 	}
 
 	// Create agent system
@@ -90,14 +114,14 @@ func TestE2E_ValidatorGeneration(t *testing.T) {
 	defer cancel()
 
 	task := &agent.Task{
-		ID:   "test-validator",
-		Type: agent.TaskTypeCode,
+		ID:          "test-validator",
+		Type:        agent.TaskTypeCode,
 		Description: fmt.Sprintf("Create email validation function in %s: IsValidEmail(email string) bool that checks if string contains @ and . characters. Include validation tests.", absPath),
 		Input: map[string]interface{}{
 			"project_path": absPath,
 			"file_type":    "implementation",
 		},
-		Status:    agent.TaskStatusNew,
+		Status:    agent.TaskPending,
 		CreatedAt: time.Now(),
 	}
 
