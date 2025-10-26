@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"wilson/core/registry"
 	. "wilson/core/types"
@@ -96,17 +97,68 @@ func (t *LSPDiagnosticsTool) Execute(ctx context.Context, args map[string]interf
 		return "", fmt.Errorf("failed to open document: %w", err)
 	}
 
-	// Wait briefly for diagnostics to be computed
-	// TODO: Implement proper diagnostic listener instead of sleep
-	// time.Sleep(500 * time.Millisecond)
+	// Wait briefly for diagnostics to be computed by language server
+	// LSP servers process files asynchronously and send diagnostics via notifications
+	time.Sleep(500 * time.Millisecond)
 
-	// For now, return success with note about async diagnostics
-	// Real implementation will need to listen for textDocument/publishDiagnostics notifications
+	// Get stored diagnostics from client
+	diagnostics := client.GetDiagnostics(fileURI)
+
+	// Build result
 	result := map[string]interface{}{
-		"status":  "document_opened",
-		"file":    filePath,
-		"message": "Document opened in language server. Diagnostics will be available via notifications.",
-		"note":    "Full diagnostic support requires implementing notification listener",
+		"file":          filePath,
+		"uri":           fileURI,
+		"has_errors":    false,
+		"error_count":   0,
+		"warning_count": 0,
+		"hint_count":    0,
+		"diagnostics":   []map[string]interface{}{},
+	}
+
+	// Process diagnostics
+	diagList := []map[string]interface{}{}
+	errorCount := 0
+	warningCount := 0
+	hintCount := 0
+
+	for _, diag := range diagnostics {
+		severity := "unknown"
+		switch diag.Severity {
+		case lsp.SeverityError:
+			severity = "error"
+			errorCount++
+		case lsp.SeverityWarning:
+			severity = "warning"
+			warningCount++
+		case lsp.SeverityHint:
+			severity = "hint"
+			hintCount++
+		case lsp.SeverityInformation:
+			severity = "info"
+		}
+
+		diagList = append(diagList, map[string]interface{}{
+			"severity":  severity,
+			"line":      diag.Range.Start.Line + 1, // Convert to 1-based for user display
+			"character": diag.Range.Start.Character,
+			"message":   diag.Message,
+			"source":    diag.Source,
+			"code":      diag.Code,
+		})
+	}
+
+	result["diagnostics"] = diagList
+	result["error_count"] = errorCount
+	result["warning_count"] = warningCount
+	result["hint_count"] = hintCount
+	result["has_errors"] = errorCount > 0
+
+	// Add summary
+	if len(diagnostics) == 0 {
+		result["summary"] = "No issues found"
+	} else {
+		result["summary"] = fmt.Sprintf("Found %d error(s), %d warning(s), %d hint(s)",
+			errorCount, warningCount, hintCount)
 	}
 
 	output, _ := json.MarshalIndent(result, "", "  ")

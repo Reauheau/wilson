@@ -25,6 +25,9 @@ type Client struct {
 	pending     map[int64]chan *jsonrpcResponse
 	initialized bool
 	rootURI     string
+	// Diagnostic storage
+	diagnosticsMu sync.RWMutex
+	diagnostics   map[string][]Diagnostic // uri -> diagnostics
 }
 
 // jsonrpcRequest represents a JSON-RPC 2.0 request
@@ -59,8 +62,9 @@ func NewClient(language string) (*Client, error) {
 	}
 
 	return &Client{
-		language: language,
-		pending:  make(map[int64]chan *jsonrpcResponse),
+		language:    language,
+		pending:     make(map[int64]chan *jsonrpcResponse),
+		diagnostics: make(map[string][]Diagnostic),
 	}, nil
 }
 
@@ -305,6 +309,50 @@ func (c *Client) GetHover(ctx context.Context, uri string, line, character int) 
 	return &hover, nil
 }
 
+// GetDocumentSymbols requests all symbols in a document
+func (c *Client) GetDocumentSymbols(ctx context.Context, uri string) ([]DocumentSymbol, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := struct {
+		TextDocument TextDocumentIdentifier `json:"textDocument"`
+	}{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+	}
+
+	result, err := c.SendRequest(ctx, "textDocument/documentSymbol", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var symbols []DocumentSymbol
+	if err := json.Unmarshal(result, &symbols); err != nil {
+		return nil, fmt.Errorf("failed to parse document symbols: %w", err)
+	}
+
+	return symbols, nil
+}
+
+// GetDiagnostics returns stored diagnostics for a file
+func (c *Client) GetDiagnostics(uri string) []Diagnostic {
+	c.diagnosticsMu.RLock()
+	defer c.diagnosticsMu.RUnlock()
+
+	// Return copy to avoid race conditions
+	diagnostics := c.diagnostics[uri]
+	result := make([]Diagnostic, len(diagnostics))
+	copy(result, diagnostics)
+	return result
+}
+
+// ClearDiagnostics clears diagnostics for a file
+func (c *Client) ClearDiagnostics(uri string) {
+	c.diagnosticsMu.Lock()
+	defer c.diagnosticsMu.Unlock()
+	delete(c.diagnostics, uri)
+}
+
 // SendRequest sends a request and waits for the response
 func (c *Client) SendRequest(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
 	if !c.running.Load() {
@@ -407,21 +455,68 @@ func (c *Client) listen() {
 			break
 		}
 
-		// Parse as JSON-RPC response
+		// Try to parse as response first (has ID)
 		var resp jsonrpcResponse
 		if err := json.Unmarshal(msg, &resp); err != nil {
-			fmt.Printf("[LSP] Failed to parse response: %v\n", err)
+			fmt.Printf("[LSP] Failed to parse message: %v\n", err)
 			continue
 		}
 
-		// Deliver to pending request
-		c.mu.RLock()
-		ch, exists := c.pending[resp.ID]
-		c.mu.RUnlock()
+		// Check if this is a notification (no ID) or a response (has ID)
+		if resp.ID == 0 {
+			// This is a notification - check for method field
+			var notification struct {
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			if err := json.Unmarshal(msg, &notification); err == nil {
+				c.handleNotification(notification.Method, notification.Params)
+			}
+		} else {
+			// This is a response - deliver to pending request
+			c.mu.RLock()
+			ch, exists := c.pending[resp.ID]
+			c.mu.RUnlock()
 
-		if exists {
-			ch <- &resp
+			if exists {
+				ch <- &resp
+			}
 		}
+	}
+}
+
+// handleNotification processes LSP notifications
+func (c *Client) handleNotification(method string, params json.RawMessage) {
+	switch method {
+	case "textDocument/publishDiagnostics":
+		var diagParams PublishDiagnosticsParams
+		if err := json.Unmarshal(params, &diagParams); err != nil {
+			fmt.Printf("[LSP] Failed to parse diagnostics: %v\n", err)
+			return
+		}
+
+		// Store diagnostics
+		c.diagnosticsMu.Lock()
+		c.diagnostics[diagParams.URI] = diagParams.Diagnostics
+		c.diagnosticsMu.Unlock()
+
+		// Log diagnostic count
+		errorCount := 0
+		warningCount := 0
+		for _, diag := range diagParams.Diagnostics {
+			if diag.Severity == SeverityError {
+				errorCount++
+			} else if diag.Severity == SeverityWarning {
+				warningCount++
+			}
+		}
+		if errorCount > 0 || warningCount > 0 {
+			fmt.Printf("[LSP] Diagnostics for %s: %d errors, %d warnings\n",
+				diagParams.URI, errorCount, warningCount)
+		}
+
+	default:
+		// Ignore other notifications for now
 	}
 }
 

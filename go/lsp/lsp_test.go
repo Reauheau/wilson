@@ -170,3 +170,93 @@ func TestLSPCacheBasics(t *testing.T) {
 
 	t.Logf("✓ Cache operations working correctly")
 }
+
+// TestLSPDiagnostics tests diagnostic notifications
+func TestLSPDiagnostics(t *testing.T) {
+	// Create a temporary Go file with errors
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+
+	// Write a file with intentional errors
+	testCode := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println(undefinedVar)  // undefined variable error
+	unusedVar := 42            // unused variable warning
+}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Initialize go.mod
+	goModContent := "module test\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatalf("Failed to write go.mod: %v", err)
+	}
+
+	// Create LSP manager and client
+	manager := NewManager()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := manager.GetClient(ctx, "go")
+	if err != nil {
+		t.Fatalf("Failed to get gopls client: %v", err)
+	}
+	defer manager.StopAll()
+
+	if err := client.Initialize(ctx, "file://"+tmpDir); err != nil {
+		t.Fatalf("Failed to initialize client: %v", err)
+	}
+
+	// Open document
+	fileURI := "file://" + testFile
+	if err := client.OpenDocument(ctx, fileURI, "go", testCode); err != nil {
+		t.Fatalf("Failed to open document: %v", err)
+	}
+
+	// Wait for diagnostics to be processed
+	time.Sleep(2 * time.Second)
+
+	// Get diagnostics
+	diagnostics := client.GetDiagnostics(fileURI)
+
+	if len(diagnostics) == 0 {
+		t.Fatal("Expected diagnostics for file with errors, got none")
+	}
+
+	t.Logf("✓ Received %d diagnostic(s)", len(diagnostics))
+
+	// Verify we have at least one error (undefinedVar)
+	hasError := false
+	for _, diag := range diagnostics {
+		t.Logf("  - [%s] Line %d: %s", severityToString(diag.Severity), diag.Range.Start.Line+1, diag.Message)
+		if diag.Severity == SeverityError {
+			hasError = true
+		}
+	}
+
+	if !hasError {
+		t.Error("Expected at least one error diagnostic")
+	}
+
+	t.Logf("✓ Diagnostics working correctly")
+}
+
+func severityToString(sev DiagnosticSeverity) string {
+	switch sev {
+	case SeverityError:
+		return "ERROR"
+	case SeverityWarning:
+		return "WARNING"
+	case SeverityInformation:
+		return "INFO"
+	case SeverityHint:
+		return "HINT"
+	default:
+		return "UNKNOWN"
+	}
+}
