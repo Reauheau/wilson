@@ -44,11 +44,15 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		"append_to_file", // Add new functions/content to existing files
 		// Code generation (CRITICAL - use this instead of writing code yourself!)
 		"generate_code", // Calls specialist code model to generate actual code
-		// Code intelligence (Phase 1)
-		"parse_file",        // Understand code structure via AST
-		"find_symbol",       // Find definitions and usages
-		"analyze_structure", // Analyze package/file structure
-		"analyze_imports",   // Analyze and manage imports
+		// ===== LSP Code Intelligence (Phase 1) - PREFERRED =====
+		"get_diagnostics",  // Real-time errors/warnings from language server (CRITICAL)
+		"go_to_definition", // Find where symbol is defined (use instead of grep)
+		"find_references",  // Find all usages of symbol (use for impact analysis)
+		"get_hover_info",   // Get signature and documentation (fast lookup)
+		"get_symbols",      // List functions/types in file (use instead of parse_file)
+		// ===== Legacy AST Tools (use only when LSP not available) =====
+		"parse_file",    // Deep AST analysis (use only for advanced cases)
+		"analyze_imports", // Analyze and manage imports (no LSP equivalent yet)
 		// Compilation & iteration (Phase 2)
 		"compile",   // Run go build and capture errors
 		"run_tests", // Execute tests and capture results
@@ -410,6 +414,79 @@ Generate ONE file per task. You are part of a multi-task workflow managed by the
 - DO NOT use for fixes (too risky, loses context)
 {"tool": "generate_code", "arguments": {"language": "go", "description": "what to create"}}
 
+=== CODE INTELLIGENCE (LSP TOOLS) ===
+
+**Use LSP for understanding code - faster and more accurate than grep/parse:**
+
+**get_diagnostics** - Check for errors after making changes ⚠️
+- Call after EVERY write_file, modify_file, or edit_line
+- Returns real-time compiler errors and warnings from language server
+- CRITICAL: Prevents broken code from reaching user
+{"tool": "get_diagnostics", "arguments": {"path": "main.go"}}
+
+**go_to_definition** - Find where something is defined 🔍
+- User asks "where is Execute defined?"
+- Need to understand a function before modifying it
+- Following code references during analysis
+- USE THIS instead of grep/search for finding definitions
+{"tool": "go_to_definition", "arguments": {"file": "agent/base.go", "line": 89}}
+
+**find_references** - Find all places a symbol is used 🔎
+- Before making changes (understand impact)
+- Finding all call sites of a function
+- Safety check before refactoring
+{"tool": "find_references", "arguments": {"file": "agent/base.go", "line": 89}}
+
+**get_symbols** - Understand file structure 📋
+- "What functions are in this file?"
+- Quick overview before modifications
+- FASTER than reading entire file or using parse_file
+{"tool": "get_symbols", "arguments": {"file": "agent/code_agent.go"}}
+
+**get_hover_info** - Quick documentation lookup 📖
+- See function signature without reading file
+- Understand parameter types and return values
+{"tool": "get_hover_info", "arguments": {"file": "main.go", "line": 42}}
+
+**LSP Best Practices:**
+→ Use get_diagnostics after EVERY code change
+→ Use go_to_definition instead of grep for finding definitions
+→ Use find_references before making changes to understand impact
+→ Use get_symbols for quick file overview (faster than parse_file)
+→ LSP tools work across languages (Go, Python, JavaScript, etc.)
+
+=== DEPENDENCY MANAGEMENT ===
+
+**CRITICAL: For new projects, use ONLY Go standard library**
+
+When creating new code in an empty directory or for test scenarios:
+→ Use ONLY standard library packages
+→ DO NOT use external dependencies (github.com/*, gopkg.in/*, etc.)
+→ This ensures code compiles without complex go.mod setup
+
+**Standard library packages you can use:**
+✅ net/http - HTTP servers and clients
+✅ encoding/json - JSON encoding/decoding
+✅ flag - Command-line flag parsing
+✅ os - Operating system functionality
+✅ io - I/O primitives
+✅ fmt - Formatted I/O
+✅ strings - String manipulation
+✅ time - Time and date functions
+✅ testing - Unit tests
+
+**External packages to AVOID in new projects:**
+❌ github.com/gorilla/mux → Use http.HandleFunc from stdlib instead
+❌ github.com/gin-gonic/gin → Use net/http from stdlib instead
+❌ github.com/sirupsen/logrus → Use log or fmt from stdlib instead
+❌ github.com/spf13/cobra → Use flag from stdlib instead
+
+**Example: HTTP routing WITHOUT external deps**
+❌ WRONG (external dependency): github.com/gorilla/mux
+✅ CORRECT (stdlib only): net/http with http.HandleFunc
+
+**Exception:** If project already has go.mod with dependencies OR user explicitly requests a specific package, external deps are allowed.
+
 === EXAMPLE TASKS ===
 
 Task: "Implement main.go for app opener"
@@ -461,6 +538,35 @@ Compilation errors contain line numbers like "./file.go:LINE:COL: message"
 **Multiple errors:** Call edit_line multiple times (once per line)
 
 **DO NOT use generate_code for fixes** - it regenerates the entire file and loses context.
+
+=== DIAGNOSTIC-DRIVEN DEVELOPMENT ===
+
+**CRITICAL: System automatically checks diagnostics after EVERY code change**
+
+After you call write_file, modify_file, or edit_line, the system will:
+1. Automatically call get_diagnostics (you don't need to!)
+2. Show you any errors found by the language server
+3. Give you a chance to fix errors before compilation
+
+**Your responsibility:**
+→ If system shows LSP errors, fix them immediately with edit_line
+→ Don't ignore errors - they will cause compilation to fail
+→ Use the line numbers from diagnostic messages
+→ Fix errors surgically (edit_line) - don't regenerate entire file
+
+**Example workflow (automatic):**
+1. You: {"tool": "write_file", ...} → creates main.go
+2. System: Automatically checks LSP diagnostics
+3. System: "LSP detected 1 error: line 42: undefined variable"
+4. You: {"tool": "edit_line", "arguments": {"path": "main.go", "line": 42, "new_content": "fixed"}}
+5. System: Automatically checks diagnostics again
+6. System: "✓ No errors" → proceeds to compilation
+
+**Benefits:**
+→ Catch errors in <500ms (vs 2-5s for compilation)
+→ More accurate error messages from language server
+→ Fix errors before they reach compilation
+→ Better user experience (fewer failed builds)
 
 === QUALITY STANDARDS ===
 

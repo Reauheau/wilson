@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"wilson/agent"
+	"wilson/agent/agents"
+	"wilson/agent/orchestration"
 	contextpkg "wilson/context"
 	"wilson/llm"
 
@@ -59,21 +61,41 @@ func TestFeedbackLoopE2E_MultiFileProject(t *testing.T) {
 		t.Fatalf("Failed to create context manager: %v", err)
 	}
 
-	// Initialize LLM manager (mock for testing)
+	// Initialize LLM manager
 	llmMgr := llm.NewManager()
+	// Register LLM for code generation (required for real execution)
+	err = llmMgr.RegisterLLM(llm.PurposeCode, llm.Config{
+		Provider: "ollama",
+		Model:    "qwen2.5-coder:14b",
+	})
+	if err != nil {
+		t.Logf("Warning: Failed to register LLM (test will use mock): %v", err)
+	}
 
-	// Create agents
-	codeAgent := agent.NewCodeAgent(llmMgr, contextMgr)
-	testAgent := agent.NewTestAgent(llmMgr, contextMgr)
-
-	// Create and initialize Manager Agent with feedback processing
-	managerAgent := agent.NewManagerAgent(db)
-	managerAgent.SetLLMManager(llmMgr)
-
+	// Create agent registry
 	registry := agent.NewRegistry()
+
+	// Create agents with new API
+	codeAgent := agents.NewCodeAgent(llmMgr, contextMgr)
+	testAgent := agents.NewTestAgent(llmMgr, contextMgr)
+
+	// Register agents
 	registry.Register(codeAgent)
 	registry.Register(testAgent)
+
+	// Create orchestration coordinator
+	coordinator := orchestration.NewCoordinator(registry)
+	coordinator.SetLLMManager(llmMgr)
+
+	// Create and initialize Manager Agent with feedback processing
+	managerAgent := orchestration.NewManagerAgent(db)
+	managerAgent.SetLLMManager(llmMgr)
 	managerAgent.SetRegistry(registry)
+	coordinator.SetManager(managerAgent)
+
+	// Set global instances
+	agent.SetGlobalRegistry(registry)
+	orchestration.SetGlobalCoordinator(coordinator)
 
 	// ✅ START FEEDBACK PROCESSING (Critical for test)
 	ctx := context.Background()
@@ -201,7 +223,7 @@ go 1.21
 	// Create parent task
 	parentTask, err := managerAgent.CreateTask(ctx, "Build User Management System",
 		fmt.Sprintf("Complete user management system in %s with tests and compilation", tmpDir),
-		agent.ManagedTaskTypeCode)
+		orchestration.ManagedTaskTypeCode)
 	if err != nil {
 		t.Fatalf("Failed to create parent task: %v", err)
 	}
@@ -210,7 +232,7 @@ go 1.21
 	testTask, err := managerAgent.CreateSubtask(ctx, parentTask.ID,
 		"Run tests for user management system",
 		fmt.Sprintf("Execute tests in %s", tmpDir),
-		agent.ManagedTaskTypeTest)
+		orchestration.ManagedTaskTypeTest)
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
@@ -221,14 +243,14 @@ go 1.21
 	}
 
 	// Update task with input
-	queue := agent.NewTaskQueue(db)
+	queue := orchestration.NewTaskQueue(db)
 	if err := queue.UpdateTask(testTask); err != nil {
 		t.Fatalf("Failed to update test task: %v", err)
 	}
 
 	// Mark test task as ready
-	agent.SetDefaultDORCriteria(testTask)
-	agent.SetDefaultDODCriteria(testTask)
+	orchestration.SetDefaultDORCriteria(testTask)
+	orchestration.SetDefaultDODCriteria(testTask)
 	if err := managerAgent.ValidateAndMarkReady(ctx, testTask.ID); err != nil {
 		t.Fatalf("Failed to mark test task ready: %v", err)
 	}
@@ -239,7 +261,7 @@ go 1.21
 	fmt.Println("\n[E2E Test] STEP 3: Executing test task (expect feedback)...")
 
 	// Create TaskContext for test execution
-	testTaskCtx := agent.NewTaskContext(testTask)
+	testTaskCtx := orchestration.NewTaskContext(testTask)
 
 	// Execute test agent (should detect missing test files and send feedback)
 	testResult, testErr := testAgent.ExecuteWithContext(ctx, testTaskCtx)
@@ -257,7 +279,7 @@ go 1.21
 	// STEP 4: Check that dependency tasks were created
 	fmt.Println("\n[E2E Test] STEP 4: Checking for dependency tasks...")
 
-	allTasks, err := queue.ListTasks(agent.TaskFilters{})
+	allTasks, err := queue.ListTasks(orchestration.TaskFilters{})
 	if err != nil {
 		t.Fatalf("Failed to list tasks: %v", err)
 	}
@@ -265,7 +287,7 @@ go 1.21
 	fmt.Printf("[E2E Test] Total tasks in queue: %d\n", len(allTasks))
 
 	// Look for dependency tasks (should be code tasks for creating test files)
-	var dependencyTasks []*agent.ManagedTask
+	var dependencyTasks []*orchestration.ManagedTask
 	for _, task := range allTasks {
 		if task.ID != testTask.ID && task.ID != parentTask.ID {
 			dependencyTasks = append(dependencyTasks, task)

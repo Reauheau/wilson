@@ -97,12 +97,10 @@ func (t *LSPDiagnosticsTool) Execute(ctx context.Context, args map[string]interf
 		return "", fmt.Errorf("failed to open document: %w", err)
 	}
 
-	// Wait briefly for diagnostics to be computed by language server
-	// LSP servers process files asynchronously and send diagnostics via notifications
-	time.Sleep(500 * time.Millisecond)
-
-	// Get stored diagnostics from client
-	diagnostics := client.GetDiagnostics(fileURI)
+	// ✅ ROBUST FIX (Phase 1C): Wait for diagnostics with adaptive polling
+	// Instead of fixed 500ms delay, poll with exponential backoff up to 2s
+	// This is faster when gopls is quick (50-100ms) and more reliable when slow
+	diagnostics := waitForDiagnosticsWithTimeout(client, fileURI, 2*time.Second)
 
 	// Build result
 	result := map[string]interface{}{
@@ -182,6 +180,42 @@ func getLanguageID(filePath string) string {
 	default:
 		return strings.TrimPrefix(ext, ".")
 	}
+}
+
+// waitForDiagnosticsWithTimeout polls for diagnostics with exponential backoff
+// This is more robust than a fixed delay because:
+// - Faster when gopls is quick (50-100ms typical)
+// - More reliable when gopls is slow (up to timeout)
+// - Adapts to system load automatically
+func waitForDiagnosticsWithTimeout(client *lsp.Client, uri string, timeout time.Duration) []lsp.Diagnostic {
+	deadline := time.Now().Add(timeout)
+	backoff := 50 * time.Millisecond
+	maxBackoff := 500 * time.Millisecond
+	attempts := 0
+
+	for time.Now().Before(deadline) {
+		diagnostics := client.GetDiagnostics(uri)
+		attempts++
+
+		// Strategy: Wait at least 2 poll attempts before accepting results
+		// This ensures gopls had reasonable time to process
+		// Empty diagnostics after 2 attempts = "no errors" (valid result)
+		if attempts >= 2 && diagnostics != nil {
+			return diagnostics
+		}
+
+		// Not ready yet, wait with exponential backoff
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+
+	// Timeout reached - return whatever we have
+	// This is graceful degradation, not an error
+	// Worst case: we fall back to compilation for verification
+	return client.GetDiagnostics(uri)
 }
 
 // Package-level LSP manager (shared with other LSP tools)

@@ -19,6 +19,7 @@ import (
 	. "wilson/core/types"
 	chatinterface "wilson/interface/chat"
 	"wilson/llm"
+	"wilson/lsp"
 	"wilson/mcp"
 	"wilson/ollama"
 	"wilson/session"
@@ -75,6 +76,11 @@ func main() {
 	if llmMgr == nil {
 		fmt.Println("Warning: Failed to initialize LLM manager, some features may not work")
 	}
+
+	// Initialize LSP Manager for code intelligence
+	lspManager := lsp.NewManager()
+	code_intelligence.SetLSPManager(lspManager)
+	defer lspManager.StopAll()
 
 	// Initialize Context Store (silent)
 	contextMgr := initializeContextManager(cfg)

@@ -278,8 +278,76 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 				Content: fmt.Sprintf("Tool 'write_file' executed successfully (auto-injected). Result:\n\n%s", writeResult),
 			})
 
+			// === AUTO-INJECT: LSP Diagnostics Check (Phase 1B) ===
+			// Check for errors with LSP BEFORE expensive compilation
+			// This provides instant feedback (~500ms vs 2-5s for compile)
+			printStatus("Checking for errors with LSP...")
+
+			diagCall := ToolCall{
+				Tool: "get_diagnostics",
+				Arguments: map[string]interface{}{
+					"path": targetPath,
+				},
+			}
+
+			diagResult, diagErr := ate.executor.Execute(ctx, diagCall)
+			if diagErr == nil {
+				result.ToolsExecuted = append(result.ToolsExecuted, "get_diagnostics")
+				result.ToolResults = append(result.ToolResults, diagResult)
+
+				// Parse diagnostics to check for errors
+				var diagData map[string]interface{}
+				if err := json.Unmarshal([]byte(diagResult), &diagData); err == nil {
+					if hasErrors, ok := diagData["has_errors"].(bool); ok && hasErrors {
+						errorCount := int(diagData["error_count"].(float64))
+						ui.Printf("[AgentExecutor] ⚠️  LSP detected %d error(s) before compilation\n", errorCount)
+
+						// Add diagnostics to conversation for LLM to see and fix
+						conversationHistory = append(conversationHistory, llm.Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf(`{"tool": "get_diagnostics", "arguments": {"path": "%s"}}`, targetPath),
+						})
+						conversationHistory = append(conversationHistory, llm.Message{
+							Role:    "user",
+							Content: fmt.Sprintf("LSP diagnostics detected errors:\n%s\n\nPlease fix these errors before proceeding.", diagResult),
+						})
+
+						// For simple errors with remaining iterations, let LLM fix
+						if i < 3 {
+							ui.Printf("[AgentExecutor] Giving LLM chance to fix LSP-detected errors\n")
+							continue // Go to next iteration - LLM will attempt fixes
+						}
+
+						// Max attempts reached - report error
+						result.Success = false
+						result.Error = fmt.Sprintf("LSP detected %d error(s) that could not be fixed", errorCount)
+						result.Output = diagResult
+						return result, fmt.Errorf("LSP diagnostics show unfixed errors")
+					} else {
+						ui.Printf("[AgentExecutor] ✓ LSP diagnostics: No errors detected\n")
+
+						// ✅ CRITICAL FIX (Phase 1C): Record LSP clean result in conversation
+						// When compile fails after LSP reports clean, LLM needs to understand:
+						// 1. LSP was called and found no syntax errors
+						// 2. Compilation checks deeper (module/dependency issues)
+						// 3. The compile error is NOT a syntax error LSP should have caught
+						conversationHistory = append(conversationHistory, llm.Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf(`{"tool": "get_diagnostics", "arguments": {"path": "%s"}}`, targetPath),
+						})
+						conversationHistory = append(conversationHistory, llm.Message{
+							Role:    "user",
+							Content: "LSP diagnostics: No syntax errors detected. Note: Compilation will perform deeper checks including module dependencies, build constraints, and cross-file consistency.",
+						})
+					}
+				}
+			} else {
+				// LSP failed - not critical, will fall back to compile
+				ui.Printf("[AgentExecutor] LSP diagnostics unavailable, will rely on compile\n")
+			}
+
 			// AUTO-INJECT: After write_file succeeds, immediately call compile
-			// This completes the mandatory workflow: generate → write → compile
+			// This completes the mandatory workflow: generate → write → LSP check → compile
 			// Extract project directory from target path
 			compileTarget := targetPath
 			if idx := strings.LastIndex(targetPath, "/"); idx != -1 {
