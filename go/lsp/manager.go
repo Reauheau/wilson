@@ -3,7 +3,9 @@ package lsp
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -119,24 +121,111 @@ func (m *Manager) RestartClient(ctx context.Context, language string) error {
 	return err
 }
 
-// detectLanguage returns the language name based on file extension
+// detectLanguage returns the language name and ID based on file extension
+// Returns (language, languageID) where language is used for server selection
+// and languageID is passed to the LSP server for syntax detection
 func detectLanguage(filePath string) string {
-	// Simple extension-based detection
-	// Will expand this as we add more language support
-	switch {
-	case len(filePath) >= 3 && filePath[len(filePath)-3:] == ".go":
-		return "go"
-	case len(filePath) >= 3 && filePath[len(filePath)-3:] == ".py":
-		return "python"
-	case len(filePath) >= 3 && filePath[len(filePath)-3:] == ".js":
-		return "javascript"
-	case len(filePath) >= 3 && filePath[len(filePath)-3:] == ".ts":
-		return "typescript"
-	case len(filePath) >= 3 && filePath[len(filePath)-3:] == ".rs":
-		return "rust"
+	lang, _ := detectLanguageAndID(filePath)
+	return lang
+}
+
+// detectLanguageAndID performs enhanced language detection with full extension support
+func detectLanguageAndID(filePath string) (language string, languageID string) {
+	// Get file extension
+	ext := ""
+	for i := len(filePath) - 1; i >= 0 && i > len(filePath)-10; i-- {
+		if filePath[i] == '.' {
+			ext = filePath[i:]
+			break
+		}
+		if filePath[i] == '/' || filePath[i] == '\\' {
+			break
+		}
+	}
+
+	// Extension-based detection with full multi-language support
+	switch ext {
+	// Go
+	case ".go":
+		return "go", "go"
+
+	// Python
+	case ".py":
+		return "python", "python"
+	case ".pyi": // Python type stubs
+		return "python", "python"
+
+	// JavaScript variants
+	case ".js":
+		return "javascript", "javascript"
+	case ".mjs": // ES modules
+		return "javascript", "javascript"
+	case ".cjs": // CommonJS
+		return "javascript", "javascript"
+	case ".jsx": // React JSX
+		return "javascript", "javascriptreact"
+
+	// TypeScript variants
+	case ".ts":
+		return "typescript", "typescript"
+	case ".tsx": // React TSX
+		return "typescript", "typescriptreact"
+	case ".mts": // ES module TypeScript
+		return "typescript", "typescript"
+	case ".cts": // CommonJS TypeScript
+		return "typescript", "typescript"
+
+	// Rust
+	case ".rs":
+		return "rust", "rust"
+
 	default:
+		// Try shebang detection for scripts without extension
+		if ext == "" {
+			if lang := detectShebang(filePath); lang != "" {
+				return lang, lang
+			}
+		}
+		return "", ""
+	}
+}
+
+// detectShebang reads the first line to detect interpreter for extensionless scripts
+func detectShebang(filePath string) string {
+	file, err := os.Open(filePath)
+	if err != nil {
 		return ""
 	}
+	defer file.Close()
+
+	// Read first line only
+	buf := make([]byte, 256)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return ""
+	}
+
+	firstLine := string(buf[:n])
+	// Find newline
+	if idx := strings.Index(firstLine, "\n"); idx != -1 {
+		firstLine = firstLine[:idx]
+	}
+
+	// Check for shebang
+	if !strings.HasPrefix(firstLine, "#!") {
+		return ""
+	}
+
+	// Detect language from shebang
+	shebang := strings.ToLower(firstLine)
+	if strings.Contains(shebang, "python") {
+		return "python"
+	}
+	if strings.Contains(shebang, "node") || strings.Contains(shebang, "bun") || strings.Contains(shebang, "deno") {
+		return "javascript"
+	}
+
+	return ""
 }
 
 // getCurrentDir returns the current working directory

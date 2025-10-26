@@ -21,7 +21,7 @@ type LSPHoverTool struct {
 func (t *LSPHoverTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "get_hover_info",
-		Description: "Get documentation, type information, and function signatures for a symbol. Fast way to understand code without reading files.",
+		Description: "Get documentation, type information, and function signatures for a symbol. Supports Go, Python, JavaScript, TypeScript, Rust. Fast way to understand code without reading files.",
 		Category:    CategoryAI,
 		RiskLevel:   RiskSafe,
 		Enabled:     true,

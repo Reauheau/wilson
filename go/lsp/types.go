@@ -5,9 +5,10 @@ package lsp
 
 // InitializeParams represents the initialize request parameters
 type InitializeParams struct {
-	ProcessID    int                `json:"processId"`
-	RootURI      string             `json:"rootUri"`
-	Capabilities ClientCapabilities `json:"capabilities"`
+	ProcessID             int                `json:"processId"`
+	RootURI               string             `json:"rootUri"`
+	Capabilities          ClientCapabilities `json:"capabilities"`
+	InitializationOptions interface{}        `json:"initializationOptions,omitempty"`
 }
 
 // ClientCapabilities defines what the client supports

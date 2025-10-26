@@ -144,17 +144,12 @@ func (c *Client) Initialize(ctx context.Context, rootURI string) error {
 
 	c.rootURI = rootURI
 
-	// Build initialize params
+	// Build initialize params with language-specific options
 	params := InitializeParams{
-		ProcessID: -1, // Use -1 for no parent process
-		RootURI:   rootURI,
-		Capabilities: ClientCapabilities{
-			TextDocument: TextDocumentClientCapabilities{
-				PublishDiagnostics: PublishDiagnosticsClientCapabilities{
-					RelatedInformation: true,
-				},
-			},
-		},
+		ProcessID:             -1, // Use -1 for no parent process
+		RootURI:               rootURI,
+		Capabilities:          c.getClientCapabilities(),
+		InitializationOptions: c.getInitializationOptions(),
 	}
 
 	// Send initialize request
@@ -176,6 +171,63 @@ func (c *Client) Initialize(ctx context.Context, rootURI string) error {
 
 	c.initialized = true
 	return nil
+}
+
+// getClientCapabilities returns language-specific client capabilities
+func (c *Client) getClientCapabilities() ClientCapabilities {
+	// Base capabilities that all clients support
+	return ClientCapabilities{
+		TextDocument: TextDocumentClientCapabilities{
+			PublishDiagnostics: PublishDiagnosticsClientCapabilities{
+				RelatedInformation: true,
+			},
+		},
+	}
+}
+
+// getInitializationOptions returns language-specific initialization options
+// These customize the language server's behavior for optimal performance
+func (c *Client) getInitializationOptions() interface{} {
+	switch c.language {
+	case "python":
+		// Pyright/Pylance configuration
+		return map[string]interface{}{
+			"python": map[string]interface{}{
+				"analysis": map[string]interface{}{
+					"typeCheckingMode": "basic", // basic, standard, or strict
+					"diagnosticMode":   "openFilesOnly",
+					"autoSearchPaths":  true,
+				},
+			},
+		}
+
+	case "javascript", "typescript":
+		// TypeScript language server configuration
+		return map[string]interface{}{
+			"preferences": map[string]interface{}{
+				"includeInlayParameterNameHints":         "all",
+				"includeInlayFunctionParameterTypeHints": true,
+			},
+		}
+
+	case "rust":
+		// rust-analyzer configuration
+		return map[string]interface{}{
+			"checkOnSave": map[string]interface{}{
+				"command": "clippy", // Use clippy for additional lints
+			},
+			"cargo": map[string]interface{}{
+				"features": "all", // Enable all cargo features
+			},
+		}
+
+	case "go":
+		// gopls configuration (use defaults, they're already good)
+		return nil
+
+	default:
+		return nil
+	}
 }
 
 // OpenDocument notifies the server that a document has been opened
@@ -568,34 +620,90 @@ func (s *lspScanner) ReadMessage() ([]byte, error) {
 	return body, nil
 }
 
-// getLanguageServerExecutable returns the executable path for a language server
+// ServerConfig represents language server configuration with fallback support
+type ServerConfig struct {
+	Primary   string   // Primary executable to try
+	Fallbacks []string // Fallback executables if primary not found
+	Args      []string // Command-line arguments
+}
+
+// languageServers maps languages to their server configurations
+var languageServers = map[string]ServerConfig{
+	"go": {
+		Primary:   "gopls",
+		Fallbacks: []string{},
+		Args:      []string{},
+	},
+	"python": {
+		Primary:   "pyright-langserver",
+		Fallbacks: []string{"pylsp"}, // Python LSP Server as fallback
+		Args:      []string{"--stdio"},
+	},
+	"javascript": {
+		Primary:   "typescript-language-server",
+		Fallbacks: []string{},
+		Args:      []string{"--stdio"},
+	},
+	"typescript": {
+		Primary:   "typescript-language-server",
+		Fallbacks: []string{},
+		Args:      []string{"--stdio"},
+	},
+	"rust": {
+		Primary:   "rust-analyzer",
+		Fallbacks: []string{},
+		Args:      []string{},
+	},
+}
+
+// getLanguageServerExecutable finds the first available language server executable
+// Tries primary first, then falls back to alternatives
 func getLanguageServerExecutable(language string) string {
-	switch language {
-	case "go":
-		return "gopls"
-	case "python":
-		return "pyright-langserver"
-	case "javascript", "typescript":
-		return "typescript-language-server"
-	case "rust":
-		return "rust-analyzer"
-	default:
-		return ""
+	config, ok := languageServers[language]
+	if !ok {
+		return "" // Unsupported language
 	}
+
+	// Try primary first
+	if execPath, err := exec.LookPath(config.Primary); err == nil {
+		return execPath
+	}
+
+	// Try fallbacks
+	for _, fallback := range config.Fallbacks {
+		if execPath, err := exec.LookPath(fallback); err == nil {
+			fmt.Printf("[LSP] Using fallback %s for %s (primary %s not found)\n",
+				fallback, language, config.Primary)
+			return execPath
+		}
+	}
+
+	// None found
+	return ""
 }
 
 // getLanguageServerArgs returns command-line arguments for a language server
 func getLanguageServerArgs(language string) []string {
-	switch language {
-	case "go":
-		return []string{} // gopls runs in stdio mode by default
-	case "python":
-		return []string{"--stdio"}
-	case "javascript", "typescript":
-		return []string{"--stdio"}
-	case "rust":
-		return []string{}
-	default:
-		return []string{}
+	if config, ok := languageServers[language]; ok {
+		return config.Args
 	}
+	return []string{}
+}
+
+// ValidateLanguageServer checks if a language server is available for the given language
+func ValidateLanguageServer(language string) error {
+	executable := getLanguageServerExecutable(language)
+	if executable == "" {
+		config, ok := languageServers[language]
+		if !ok {
+			return fmt.Errorf("language %s is not supported", language)
+		}
+
+		// Build helpful error message listing what was tried
+		tried := []string{config.Primary}
+		tried = append(tried, config.Fallbacks...)
+
+		return fmt.Errorf("language server for %s not found (tried: %v)", language, tried)
+	}
+	return nil
 }

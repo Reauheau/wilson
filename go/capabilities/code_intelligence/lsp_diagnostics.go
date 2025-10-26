@@ -24,7 +24,7 @@ type LSPDiagnosticsTool struct {
 func (t *LSPDiagnosticsTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "get_diagnostics",
-		Description: "Get real-time diagnostics (errors, warnings, hints) from language server. Use after every code change to catch issues immediately.",
+		Description: "Get real-time diagnostics (errors, warnings, hints) from language server. Supports Go, Python, JavaScript, TypeScript, Rust. Use after every code change to catch issues immediately.",
 		Category:    CategoryAI, // Code intelligence is AI-powered analysis
 		RiskLevel:   RiskSafe,
 		Enabled:     true,

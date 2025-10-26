@@ -22,7 +22,7 @@ type LSPFindReferencesTool struct {
 func (t *LSPFindReferencesTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "find_references",
-		Description: "Find all places where a symbol is used across the codebase. Critical for understanding impact before changes.",
+		Description: "Find all places where a symbol is used across the codebase. Supports Go, Python, JavaScript, TypeScript, Rust. Critical for understanding impact before changes.",
 		Category:    CategoryAI,
 		RiskLevel:   RiskSafe,
 		Enabled:     true,

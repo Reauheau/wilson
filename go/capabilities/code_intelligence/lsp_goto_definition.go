@@ -22,7 +22,7 @@ type LSPGoToDefinitionTool struct {
 func (t *LSPGoToDefinitionTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "go_to_definition",
-		Description: "Find where a function, variable, or type is defined. More accurate than grep - uses language server's symbol table.",
+		Description: "Find where a function, variable, or type is defined. Supports Go, Python, JavaScript, TypeScript, Rust. More accurate than grep - uses language server's symbol table.",
 		Category:    CategoryAI,
 		RiskLevel:   RiskSafe,
 		Enabled:     true,

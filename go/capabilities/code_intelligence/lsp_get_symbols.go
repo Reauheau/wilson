@@ -21,7 +21,7 @@ type LSPGetSymbolsTool struct {
 func (t *LSPGetSymbolsTool) Metadata() ToolMetadata {
 	return ToolMetadata{
 		Name:        "get_symbols",
-		Description: "Get all functions, types, variables in a file. Fast alternative to parse_file for understanding file structure.",
+		Description: "Get all functions, types, variables in a file. Supports Go, Python, JavaScript, TypeScript, Rust. Fast alternative to parse_file for understanding file structure.",
 		Category:    CategoryAI,
 		RiskLevel:   RiskSafe,
 		Enabled:     true,
