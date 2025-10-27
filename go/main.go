@@ -115,7 +115,7 @@ func main() {
 	}
 
 	fmt.Printf("\nType -help to see available tools\n")
-	fmt.Println("What can I help you with?\n")
+	fmt.Println("What can I help you with?")
 
 	// Create chat interface
 	chatUI := chatinterface.NewInterface()

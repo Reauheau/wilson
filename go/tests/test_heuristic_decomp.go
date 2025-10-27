@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"wilson/agent"
+	"wilson/agent/orchestration"
 	"wilson/config"
 	contextpkg "wilson/context"
 )
@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	managerAgent := agent.NewManagerAgent(db)
+	managerAgent := orchestration.NewManagerAgent(db)
 	// Don't set LLM manager - test will use heuristic fallback
 
 	fmt.Println("=== Wilson Heuristic Decomposition Test ===\n")
@@ -43,7 +43,7 @@ func main() {
 	// Test 1: Simple request without "test" keyword
 	fmt.Println("Test 1: Request without 'test' keyword")
 	fmt.Println("Input: 'create a calculator in Go'")
-	parentTask1, err := managerAgent.CreateTask(ctx, "User Request", "create a calculator in Go", agent.ManagedTaskTypeGeneral)
+	parentTask1, err := managerAgent.CreateTask(ctx, "User Request", "create a calculator in Go", orchestration.ManagedTaskTypeGeneral)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -58,7 +58,7 @@ func main() {
 	// Test 2: Request with "test" keyword
 	fmt.Println("Test 2: Request with 'test' keyword")
 	fmt.Println("Input: 'create a calculator in Go and write tests'")
-	parentTask2, err := managerAgent.CreateTask(ctx, "User Request with Tests", "create a calculator in Go and write tests", agent.ManagedTaskTypeGeneral)
+	parentTask2, err := managerAgent.CreateTask(ctx, "User Request with Tests", "create a calculator in Go and write tests", orchestration.ManagedTaskTypeGeneral)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -68,14 +68,14 @@ func main() {
 
 	// Test 3: Create subtasks manually to verify the queue works
 	fmt.Println("Test 3: Create subtasks manually")
-	subtask1, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Generate main code", "Create calculator.go", agent.ManagedTaskTypeCode)
+	subtask1, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Generate main code", "Create calculator.go", orchestration.ManagedTaskTypeCode)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("✓ Created subtask 1: %s\n", subtask1.TaskKey)
 
-	subtask2, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Generate test file", "Create calculator_test.go", agent.ManagedTaskTypeCode)
+	subtask2, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Generate test file", "Create calculator_test.go", orchestration.ManagedTaskTypeCode)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -83,7 +83,7 @@ func main() {
 	subtask2.DependsOn = []string{subtask1.TaskKey}
 	fmt.Printf("✓ Created subtask 2: %s (depends on: %v)\n", subtask2.TaskKey, subtask2.DependsOn)
 
-	subtask3, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Run tests", "Execute test suite", agent.ManagedTaskTypeTest)
+	subtask3, err := managerAgent.CreateSubtask(ctx, parentTask2.ID, "Run tests", "Execute test suite", orchestration.ManagedTaskTypeTest)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -106,7 +106,7 @@ func main() {
 
 	// List all tasks
 	fmt.Println("\n=== All Tasks ===")
-	tasks, err := managerAgent.ListAllTasks(agent.TaskFilters{})
+	tasks, err := managerAgent.ListAllTasks(orchestration.TaskFilters{})
 	if err != nil {
 		fmt.Printf("Error listing tasks: %v\n", err)
 	} else {

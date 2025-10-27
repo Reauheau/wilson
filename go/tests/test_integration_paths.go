@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"wilson/agent"
+	"wilson/agent/agents"
+	"wilson/agent/orchestration"
 	"wilson/config"
 	contextpkg "wilson/context"
 	"wilson/llm"
@@ -76,10 +78,10 @@ func main() {
 	agentRegistry := agent.NewRegistry()
 
 	// Register agents
-	chatAgent := agent.NewChatAgent(llmMgr, contextMgr)
-	codeAgent := agent.NewCodeAgent(llmMgr, contextMgr)
-	testAgent := agent.NewTestAgent(llmMgr, contextMgr)
-	reviewAgent := agent.NewReviewAgent(llmMgr, contextMgr)
+	chatAgent := agents.NewChatAgent(llmMgr, contextMgr)
+	codeAgent := agents.NewCodeAgent(llmMgr, contextMgr)
+	testAgent := agents.NewTestAgent(llmMgr, contextMgr)
+	reviewAgent := agents.NewReviewAgent(llmMgr, contextMgr)
 
 	agentRegistry.Register(chatAgent)
 	agentRegistry.Register(codeAgent)
@@ -87,7 +89,7 @@ func main() {
 	agentRegistry.Register(reviewAgent)
 
 	// Create coordinator
-	coordinator := agent.NewCoordinator(agentRegistry)
+	coordinator := orchestration.NewCoordinator(agentRegistry)
 	coordinator.SetLLMManager(llmMgr)
 
 	// Initialize Manager Agent
@@ -97,14 +99,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	managerAgent := agent.NewManagerAgent(db)
+	managerAgent := orchestration.NewManagerAgent(db)
 	managerAgent.SetLLMManager(llmMgr)
 	managerAgent.SetRegistry(agentRegistry)
 	coordinator.SetManager(managerAgent)
 
 	// Set global registry and coordinator
 	agent.SetGlobalRegistry(agentRegistry)
-	agent.SetGlobalCoordinator(coordinator)
+	orchestration.SetGlobalCoordinator(coordinator)
 
 	fmt.Println("✓ System initialized\n")
 
