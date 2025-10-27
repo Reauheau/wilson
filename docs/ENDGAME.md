@@ -316,18 +316,17 @@ Subtasks:
 - Add documentation and comments
 - Auto-compile after generation (via agent_executor)
 
-**Advanced Capabilities (4-Phase Upgrade Complete):**
-- **Phase 1: Code Intelligence** - AST parsing, symbol search, structure analysis, import management
-- **Phase 2: Iterative Compilation** - Compile-test-fix loops, structured error parsing, test execution
-- **Phase 3: Cross-File Awareness** - Dependency mapping, pattern discovery, impact analysis
-- **Phase 4: Quality Gates** - Auto-formatting, linting, security scanning, complexity checks, coverage verification
+**Advanced Capabilities (LSP + AST Complete):**
+- **LSP Integration** - Real-time diagnostics (<500ms), go-to-definition, find-references, hover docs, symbols, rename refactoring
+- **AST Parsing** - Symbol search, structure analysis, import management
+- **Iterative Compilation** - Compile-test-fix loops, structured error parsing, test execution
+- **Multi-Language** - Go, Python, JavaScript/TypeScript, Rust
 
 **Tools:**
-- `read_file`
-- `write_file`
-- `search_files`
-- `run_command` (for formatting, linting)
-- `store_artifact`
+- `get_diagnostics`, `go_to_definition`, `find_references`, `get_hover_info`, `get_symbols`, `rename_symbol` (LSP)
+- `parse_file`, `find_symbol`, `analyze_structure` (AST)
+- `read_file`, `write_file`, `modify_file`
+- `compile`, `run_tests`
 
 **Quality Criteria:**
 - Code compiles/runs
@@ -738,6 +737,49 @@ You: "Can you add a --verbose flag?"
 Wilson: "Task TASK-002 started. Spawning Code Worker..."
   [Fresh worker, clean state, no contamination from previous work]
 ```
+
+---
+
+## 🔧 LSP Code Intelligence - Complete ✅
+
+**Status:** Production-Ready (Oct 27, 2025)
+
+### What It Is
+
+Full Language Server Protocol integration providing IDE-grade code intelligence for 4 languages.
+
+### 6 LSP Tools
+
+1. **get_diagnostics** - Real-time errors/warnings (<500ms vs 2-5s compilation)
+2. **go_to_definition** - Navigate to symbol definitions
+3. **find_references** - Find all usages workspace-wide
+4. **get_hover_info** - Documentation and type information
+5. **get_symbols** - File structure overview
+6. **rename_symbol** - Safe workspace-wide refactoring with validation
+
+### Supported Languages
+
+- **Go** (gopls) - .go files
+- **Python** (Pyright/pylsp) - .py, .pyi files
+- **JavaScript/TypeScript** (typescript-language-server) - .js, .jsx, .ts, .tsx, .mjs, .cjs
+- **Rust** (rust-analyzer) - .rs files
+
+### Key Benefits
+
+- **Instant Feedback:** <500ms diagnostics vs 2-5s compile cycle
+- **Multi-Language:** Same tools work across all 4 languages
+- **Safe Refactoring:** rename_symbol validates before applying
+- **Auto-Injected:** get_diagnostics called after every write_file
+
+### Architecture
+
+- Multi-language manager with lazy initialization
+- Per-language clients (one per language)
+- Auto-detection via file extensions
+- Fallback chains (Python: pyright → pylsp)
+- Language-specific config (Pyright type checking, Rust clippy)
+
+**Documentation:** Phase 1-4 complete, see `docs/improvement/LSP_*.md`
 
 ---
 

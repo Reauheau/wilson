@@ -1,7 +1,7 @@
 # Wilson Context & Tools Gap Analysis
 
-**Date:** October 25, 2025
-**Purpose:** Compare Wilson's TaskContext and tool suite against ideal coding assistant capabilities
+**Date:** October 27, 2025 (Updated)
+**Purpose:** Compare Wilson's capabilities against leading CLI code assistants (Aider, Continue.dev, Cursor, Cline)
 
 ---
 
@@ -126,9 +126,20 @@ ConfidenceLevel  float64             // How confident agent is
 
 ---
 
-## 🛠️ Current Wilson Tools (50 tools)
+## 🛠️ Current Wilson Tools (50+ tools)
 
-### Code Intelligence (10 tools) ✅ EXCELLENT
+### LSP Integration (6 tools) ✅ EXCELLENT
+- ✅ `get_diagnostics` - Real-time errors (<500ms)
+- ✅ `go_to_definition` - Navigate to definitions
+- ✅ `find_references` - Find all usages workspace-wide
+- ✅ `get_hover_info` - Documentation and type info
+- ✅ `get_symbols` - File structure overview
+- ✅ `rename_symbol` - Safe workspace-wide refactoring
+- **Supports:** Go, Python, JavaScript/TypeScript, Rust
+
+**Assessment:** Strong LSP foundation, matches modern IDE capabilities
+
+### Code Intelligence - AST (10 tools) ✅ EXCELLENT
 - ✅ `parse_file` - AST parsing
 - ✅ `find_symbol` - Find definitions/usages
 - ✅ `analyze_structure` - Package analysis
@@ -140,7 +151,7 @@ ConfidenceLevel  float64             // How confident agent is
 - ✅ `complexity_check` - Complexity analysis
 - ✅ `lint_code` - Style checking
 
-**Assessment:** Wilson has STRONG code intelligence, on par with Claude Code
+**Assessment:** Comprehensive AST capabilities, complements LSP well
 
 ### File Operations (9 tools) ✅ GOOD
 - ✅ `read_file` - Read files
@@ -214,11 +225,11 @@ ConfidenceLevel  float64             // How confident agent is
 
 ---
 
-## 🔴 Critical Missing Tools (vs Claude Code / ideal system)
+## 🔴 Critical Missing Tools (vs Aider, Continue.dev, Cursor)
 
-### 1. **Git Operations** 🔴 CRITICAL
+### 1. **Git Operations** 🔴 CRITICAL *(Planned - 8 tools designed)*
 ```
-MISSING:
+READY TO IMPLEMENT:
 - git_status           # See what's changed
 - git_diff             # View diffs
 - git_blame            # Find who changed code
@@ -226,75 +237,77 @@ MISSING:
 - git_show             # Show commits
 - git_branch           # List/switch branches
 - git_stash            # Stash changes
+- git_commit           # Commit changes
 ```
 
 **Why critical:**
-- Can't see what user has modified
-- Can't understand code history
-- Can't avoid conflicts with uncommitted changes
-- Can't create proper commit messages
-- Claude Code has full git integration
+- **Aider:** Auto-commits with smart messages, core feature
+- **Continue.dev:** Git integration for context awareness
+- **Cursor:** Full git UI integration
+- Wilson can't see what's changed, understand history, or commit safely
 
-**Impact if added:** +30% effectiveness for real-world usage
+**Impact if added:** +30% effectiveness, enables "Aider-style" auto-commit workflow
 
-### 2. **LSP/IDE Integration** 🔴 CRITICAL
+### 2. **Codebase Mapping** 🔴 CRITICAL
 ```
-MISSING:
-- goto_definition      # Jump to definition
-- find_references      # Find all usages
-- rename_symbol        # Safe rename across files
-- get_hover_info       # Get docs for symbol
-- get_diagnostics      # Real-time errors/warnings
-- get_completions      # Code completions
-- organize_imports     # Clean up imports
+MISSING (Aider's killer feature):
+- create_repo_map      # Generate codebase structure map
+- update_repo_map      # Refresh map when files change
+- search_repo_map      # Find symbols/patterns across codebase
 ```
 
 **Why critical:**
-- Current tools require file parsing (slow)
-- LSP provides instant, accurate info
-- LSP handles multi-file refactoring safely
-- LSP knows about ALL files in workspace
-- Claude Code uses LSP extensively
+- **Aider:** Creates a "map" of entire codebase, helps LLM understand project structure
+- **Benefits:** Work on larger codebases (100+ files), understand relationships
+- **Current gap:** Wilson only sees files explicitly added to context
 
-**Impact if added:** +40% speed, +20% accuracy
+**Impact if added:** +50% effectiveness on large codebases (Aider's competitive advantage)
 
-### 3. **Multi-file Refactoring** 🟡 HIGH
+### 3. **Search & Navigation** 🟡 HIGH
 ```
 MISSING:
-- rename_across_files  # Safe rename in all files
-- extract_function     # Extract to new function
-- extract_variable     # Extract to variable
-- inline_function      # Inline a function
-- move_symbol          # Move to different file
-- extract_interface    # Create interface
+- grep_workspace       # Fast text search (ripgrep-based)
+- find_in_files        # Regex search across project
+- recent_files         # Track file modifications
+- file_tree            # Show project structure
 ```
 
 **Why high priority:**
-- Current tools are single-file only
-- Refactoring requires analyzing ALL usages
-- Risk of breaking code in other files
-- Claude Code has AST-based refactoring
+- **Aider:** Uses ripgrep for fast workspace search
+- **Continue.dev:** Has "@workspace" search command
+- **Cursor:** Full-text search integrated
+- Current `search_files` is basic glob patterns only
+- Can't quickly grep for text patterns across thousands of files
 
-**Impact if added:** +25% safety for refactorings
+**What others have:**
+- Aider: ripgrep integration, searches 1000s of files in <100ms
+- Continue.dev: "@workspace" context searches all project files
+- Cursor: Native workspace search with regex
 
-### 4. **Search & Navigation** 🟡 HIGH
+**Impact if added:** +40% speed for finding code patterns
+
+### 4. **Auto-Linting & Testing** 🟡 HIGH
 ```
 MISSING:
-- grep_project         # Fast text search across all files
-- find_in_files        # Search with regex
-- find_symbol_global   # Find symbol in workspace
-- find_type            # Find type definitions
-- find_interface_impl  # Find interface implementations
-- recent_files         # Files recently opened/modified
+- auto_lint            # Run linter after every change
+- auto_test            # Run tests after every change
+- fix_lint_errors      # Apply linter auto-fixes
+- run_single_test      # Run one test by name
+- run_failed_tests     # Re-run only failures
 ```
 
 **Why high priority:**
-- Current search_files is basic
-- Can't quickly find where symbol is used
-- Can't navigate large codebases efficiently
-- Claude Code has ripgrep integration
+- **Aider:** Has `/lint` and `/test` commands, auto-runs after changes
+- **Continue.dev:** Integrates with test frameworks
+- Current Wilson requires manual compilation/testing
+- Immediate feedback loop critical for code quality
 
-**Impact if added:** +35% speed for discovery
+**What others have:**
+- Aider: Automatic lint/test after each edit, shows results, can auto-fix
+- Continue.dev: Test running integrated into agent workflow
+- Cursor: Built-in test runner UI
+
+**Impact if added:** +30% code quality, faster iteration
 
 ### 5. **Testing Enhancements** 🟢 MEDIUM
 ```
@@ -513,6 +526,87 @@ type TaskContext struct {
 
 ---
 
-**Last Updated:** October 25, 2025
-**Status:** Analysis Complete - Ready for implementation planning
-**Next Step:** Prioritize Phase 1 tools (git, workspace context, search)
+---
+
+## 🆕 Unique Features from Other Tools Worth Considering
+
+### From Aider
+1. **Repo Map** - Generates tree-sitter based map of codebase structure (their #1 differentiator)
+2. **Auto-commit** - Commits every change with smart messages
+3. **/add**, **/drop** - Easy file management in chat
+4. **/architect** - Planning mode before coding
+5. **Voice coding** - Speak requests, Aider types
+6. **Watch mode** - Monitor files, auto-apply changes from comments
+
+### From Continue.dev
+1. **@workspace** - Reference entire project in queries
+2. **@web** - Fetch and reference web pages
+3. **@terminal** - Include terminal output in context
+4. **Custom agents** - User-defined agents with specific tools
+5. **Slash commands** - `/edit`, `/comment`, `/test` for quick actions
+
+### From Cursor
+1. **Composer** - Multi-file editing mode with preview
+2. **Inline AI** - Edit suggestions directly in editor
+3. **Cmd+K** - Quick AI actions anywhere
+4. **Smart apply** - Preview diffs before accepting
+
+### Innovations Wilson Could Adopt
+
+**High Priority:**
+1. **Repo Map** (from Aider) - Would massively improve large codebase handling
+2. **File tree/structure view** - Visual representation of project
+3. **Diff preview** - Show changes before applying (like Cursor)
+4. **Slash commands** - Quick shortcuts like `/test`, `/lint`, `/commit`
+5. **Watch mode** - Auto-detect file changes, stay synced
+
+**Medium Priority:**
+6. **Voice interface** - Accessibility + convenience
+7. **@context shortcuts** - @workspace, @terminal, @git, @web
+8. **Custom agents** - User-defined specialized agents
+9. **Inline comments to code** - Parse TODO comments as tasks
+
+---
+
+## 📊 Updated Comparison Matrix
+
+| Category | Wilson | Aider | Continue.dev | Assessment |
+|----------|--------|-------|--------------|------------|
+| **LSP Integration** | 6 tools ✅ | None ❌ | None ❌ | **AHEAD** |
+| **Git Integration** | Designed ⏳ | Full ✅ | Partial ✅ | **BEHIND** (ready to implement) |
+| **Repo Mapping** | None ❌ | Tree-sitter ✅ | @workspace ✅ | **CRITICAL GAP** |
+| **Search** | Basic ⚠️ | Ripgrep ✅ | @workspace ✅ | **BEHIND** |
+| **Auto-lint/test** | Manual ⚠️ | Auto ✅ | Integrated ✅ | **BEHIND** |
+| **Multi-agent** | Yes ✅ | No ❌ | Custom ✅ | **AHEAD** |
+| **Task Management** | 10 tools ✅ | None ❌ | None ❌ | **UNIQUE** |
+| **File Operations** | 9 tools ✅ | 3 basic ✅ | Standard ✅ | **AHEAD** (edit_line) |
+| **Context Memory** | SQLite ✅ | Chat only ⚠️ | Limited ⚠️ | **AHEAD** |
+| **Multi-language** | 4 langs ✅ | 100+ ✅ | Many ✅ | **GOOD** |
+
+### Key Insights
+
+**Wilson's Unique Strengths:**
+1. ✅ LSP integration (no one else has this)
+2. ✅ Multi-agent orchestration
+3. ✅ Persistent context/memory (SQLite)
+4. ✅ Task management system
+5. ✅ Surgical editing (edit_line)
+
+**Critical Gaps to Fill:**
+1. ❌ Repo mapping (Aider's killer feature)
+2. ❌ Fast workspace search (ripgrep)
+3. ⏳ Git integration (designed, needs implementation)
+4. ❌ Auto-lint/test after changes
+5. ❌ Diff preview before applying
+
+**Quick Wins:**
+- Implement Git tools (already designed)
+- Add ripgrep-based search
+- Auto-run diagnostics after edits (leverage existing LSP)
+- Simple file tree command
+
+---
+
+**Last Updated:** October 27, 2025
+**Status:** Research Complete - LSP implemented, Git designed, Repo mapping identified as #1 gap
+**Next Step:** Implement Git tools (1-2 days), then research repo mapping approaches

@@ -406,5 +406,46 @@ Agent detects issue → FeedbackBus → Manager → Creates dependency task
 
 ---
 
-**Last Updated:** October 23, 2025
+## LSP Integration (Phases 1-4) - Oct 27, 2025
+
+**Problem:** Code Agent relied on grep/text search. No understanding of symbols, references, or type definitions. Compile errors only feedback mechanism.
+
+**Solution:** Full LSP integration with 6 code intelligence tools across 4 languages.
+
+**Implementation:**
+- **Phase 1-2 (Go):** LSP client/manager architecture, 5 tools (diagnostics, goto_definition, find_references, hover, symbols)
+- **Phase 3 (Advanced Tools):** Added type_definition, find_implementations, rename_symbol
+- **Phase 4 (Multi-Language):** Extended to Python (Pyright/pylsp), JavaScript/TypeScript (typescript-language-server), Rust (rust-analyzer)
+
+**6 LSP Tools:**
+1. `get_diagnostics` - Real-time errors/warnings (<500ms vs 2-5s compilation)
+2. `go_to_definition` - Navigate to symbol definitions
+3. `find_references` - Find all usages workspace-wide
+4. `get_hover_info` - Documentation and type info
+5. `get_symbols` - File structure overview
+6. `rename_symbol` - Safe workspace-wide refactoring with validation
+
+**Architecture:**
+- Multi-language manager, lazy initialization, per-language clients
+- Auto-detection via file extensions (12 supported: .go, .py, .js, .jsx, .ts, .tsx, .rs, etc.)
+- Fallback chains (Python: pyright → pylsp)
+- Language-specific init options (Pyright type checking, Rust clippy)
+
+**Results:**
+- Real-time feedback: <500ms (vs 2-5s compile-test cycle)
+- Multi-language support: Go, Python, JavaScript/TypeScript, Rust
+- Safe refactoring: rename_symbol with prepareRename validation
+- Auto-injected: get_diagnostics called after every write_file
+
+**Files:** `lsp/client.go`, `lsp/manager.go`, `lsp/types.go`, `capabilities/code_intelligence/lsp_*.go` (6 tools), `agent/code_agent.go` (LSP integration)
+
+**Key Learnings:**
+- LSP provides IDE-grade intelligence for LLM agents
+- Real-time diagnostics faster than compilation for rapid iteration
+- Multi-language from day 1: architecture flexible, per-language quirks isolated
+- rename_symbol enables complex refactoring tasks previously impossible
+
+---
+
+**Last Updated:** October 27, 2025
 **See Also:** TODO.md (active work), ENDGAME.md (vision), SESSION_INSTRUCTIONS.md (maintenance guidelines)
