@@ -25,14 +25,15 @@ ollama:
 # Mid-Range (16GB RAM) - RECOMMENDED:
 #   chat: qwen2.5:7b (4GB)        - Excellent tool calling, good conversation
 #   analysis: qwen2.5:7b (4GB)    - Strong analysis
-#   code: qwen2.5-coder:14b (8GB) - Professional code generation
+#   code: deepseek-r1:14b (9GB)   - Reasoning model, best for atomic tasks
 #
 # High-End (32GB+ RAM):
 #   chat: qwen2.5:7b (4GB)        - Fast chat
 #   analysis: qwen2.5:14b (8GB)   - Deep analysis
-#   code: qwen2.5-coder:32b (16GB)- Production-grade code
+#   code: deepseek-r1:32b (18GB)  - Advanced reasoning for complex code
 #
-# Why qwen2.5? Better structured output (tool calling) than llama3 at any size
+# Why DeepSeek-R1? Reasoning models excel at following constraints and generating
+# minimal, focused code for atomic tasks. Better instruction adherence than qwen2.5-coder.
 
 llms:
   chat:
@@ -49,7 +50,7 @@ llms:
 
   code:
     provider: "ollama"
-    model: "qwen2.5-coder:14b"  # Code generation worker (ephemeral)
+    model: "deepseek-r1:14b"  # Reasoning model for code generation (better atomic tasks)
     temperature: 0.1
     base_url: "http://localhost:11434"
 
