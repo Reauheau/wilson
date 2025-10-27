@@ -52,6 +52,7 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		"get_symbols",          // List functions/types in file or search workspace
 		"find_implementations", // Find types implementing interface (Phase 2)
 		"get_type_definition",  // Jump to type definition of variable (Phase 2)
+		"rename_symbol",        // Safely rename symbols across workspace (Phase 2 Extended)
 		// ===== Legacy AST Tools (use only when LSP not available) =====
 		"parse_file",      // Deep AST analysis (use only for advanced cases)
 		"analyze_imports", // Analyze and manage imports (no LSP equivalent yet)
@@ -450,10 +451,22 @@ Generate ONE file per task. You are part of a multi-task workflow managed by the
 - Understand parameter types and return values
 {"tool": "get_hover_info", "arguments": {"file": "main.go", "line": 42}}
 
+**find_implementations** - Find all types implementing an interface
+{"tool": "find_implementations", "arguments": {"file": "agent/base.go", "line": 15}}
+
+**get_type_definition** - Jump to type definition (see struct fields/methods)
+{"tool": "get_type_definition", "arguments": {"file": "agent/executor.go", "line": 105}}
+
+**rename_symbol** - Rename symbol across entire workspace (use find_references first!)
+{"tool": "rename_symbol", "arguments": {"file": "agent/executor.go", "line": 42, "new_name": "ExecuteTask"}}
+
 **LSP Best Practices:**
 → Use get_diagnostics after EVERY code change
 → Use go_to_definition instead of grep for finding definitions
 → Use find_references before making changes to understand impact
+→ Use find_implementations when working with interfaces
+→ Use get_type_definition to understand struct/type layouts
+→ Use rename_symbol for safe workspace-wide renaming (check find_references first!)
 → Use get_symbols for quick file overview (faster than parse_file)
 → LSP tools work for Go, Python, JavaScript/TypeScript, and Rust
 → Note: Rust LSP is slow on first check (5-30s), then fast

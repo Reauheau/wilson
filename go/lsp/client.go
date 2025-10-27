@@ -463,6 +463,64 @@ func (c *Client) GetWorkspaceSymbols(ctx context.Context, query string) ([]Symbo
 	return symbols, nil
 }
 
+// PrepareRename validates that a rename is possible at the given position
+func (c *Client) PrepareRename(ctx context.Context, uri string, line, character int) (*PrepareRenameResult, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := PrepareRenameParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uri},
+			Position:     Position{Line: line, Character: character},
+		},
+	}
+
+	result, err := c.SendRequest(ctx, "textDocument/prepareRename", params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle null response (rename not possible)
+	if len(result) == 0 || string(result) == "null" {
+		return nil, fmt.Errorf("rename not possible at this location")
+	}
+
+	var prepareResult PrepareRenameResult
+	if err := json.Unmarshal(result, &prepareResult); err != nil {
+		return nil, fmt.Errorf("failed to parse prepareRename result: %w", err)
+	}
+
+	return &prepareResult, nil
+}
+
+// RenameSymbol performs a workspace-wide symbol rename
+func (c *Client) RenameSymbol(ctx context.Context, uri string, line, character int, newName string) (*WorkspaceEdit, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := RenameParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uri},
+			Position:     Position{Line: line, Character: character},
+		},
+		NewName: newName,
+	}
+
+	result, err := c.SendRequest(ctx, "textDocument/rename", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var edit WorkspaceEdit
+	if err := json.Unmarshal(result, &edit); err != nil {
+		return nil, fmt.Errorf("failed to parse rename result: %w", err)
+	}
+
+	return &edit, nil
+}
+
 // GetDiagnostics returns stored diagnostics for a file
 func (c *Client) GetDiagnostics(uri string) []Diagnostic {
 	c.diagnosticsMu.RLock()

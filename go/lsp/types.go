@@ -234,3 +234,38 @@ type SymbolInformation struct {
 	Location      Location   `json:"location"`
 	ContainerName string     `json:"containerName,omitempty"`
 }
+
+// PrepareRenameParams represents parameters for textDocument/prepareRename
+type PrepareRenameParams struct {
+	TextDocumentPositionParams
+}
+
+// PrepareRenameResult represents the result of prepareRename
+type PrepareRenameResult struct {
+	Range       Range  `json:"range"`
+	Placeholder string `json:"placeholder"`
+}
+
+// RenameParams represents parameters for textDocument/rename
+type RenameParams struct {
+	TextDocumentPositionParams
+	NewName string `json:"newName"`
+}
+
+// WorkspaceEdit represents changes to workspace
+type WorkspaceEdit struct {
+	Changes         map[string][]TextEdit `json:"changes,omitempty"`
+	DocumentChanges []TextDocumentEdit    `json:"documentChanges,omitempty"`
+}
+
+// TextDocumentEdit represents edits to a specific document
+type TextDocumentEdit struct {
+	TextDocument VersionedTextDocumentIdentifier `json:"textDocument"`
+	Edits        []TextEdit                      `json:"edits"`
+}
+
+// TextEdit represents a text edit
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
