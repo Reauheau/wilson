@@ -35,6 +35,10 @@ func NewTestAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Test
 		"write_file",     // Create new test files
 		"modify_file",    // Update existing tests
 		"append_to_file", // Add new test cases
+		// Git tools (see what code changed)
+		"git_status", // Detect test files
+		"git_diff",   // See what code changed
+		"git_log",    // Understand test history
 		// Test execution
 		"run_tests", // Execute go test
 		// Context and artifacts
@@ -206,6 +210,18 @@ func (a *TestAgent) buildUserPrompt(task *agent.Task, currentCtx *contextpkg.Con
 	var prompt strings.Builder
 
 	prompt.WriteString(fmt.Sprintf("Task: %s\n\n", task.Description))
+
+	// Add git context if available
+	if taskCtx := a.GetCurrentContext(); taskCtx != nil && len(taskCtx.GitModifiedFiles) > 0 {
+		prompt.WriteString("📝 **Git Context - Modified Files**:\n")
+		prompt.WriteString("Focus testing on these recently changed files:\n")
+		for _, file := range taskCtx.GitModifiedFiles {
+			if !strings.HasSuffix(file, "_test.go") {
+				prompt.WriteString(fmt.Sprintf("  - %s\n", file))
+			}
+		}
+		prompt.WriteString("\n")
+	}
 
 	// Add context - code artifacts
 	if currentCtx != nil && len(currentCtx.Artifacts) > 0 {

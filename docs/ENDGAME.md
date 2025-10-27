@@ -324,6 +324,7 @@ Subtasks:
 
 **Tools:**
 - `get_diagnostics`, `go_to_definition`, `find_references`, `get_hover_info`, `get_symbols`, `rename_symbol` (LSP)
+- `git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch` (Git context)
 - `parse_file`, `find_symbol`, `analyze_structure` (AST)
 - `read_file`, `write_file`, `modify_file`
 - `compile`, `run_tests`

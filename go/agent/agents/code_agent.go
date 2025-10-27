@@ -43,6 +43,13 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		"append_to_file", // Add new functions/content to existing files
 		// Code generation (CRITICAL - use this instead of writing code yourself!)
 		"generate_code", // Calls specialist code model to generate actual code
+		// ===== Git Tools (Context Awareness) =====
+		"git_status", // Check repo state (modified/staged/untracked files)
+		"git_diff",   // View file changes
+		"git_log",    // View commit history
+		"git_show",   // Show commit details
+		"git_blame",  // Find code authors
+		"git_branch", // Branch operations
 		// ===== LSP Code Intelligence (Phase 1) - PREFERRED =====
 		"get_diagnostics",      // Real-time errors/warnings from language server (CRITICAL)
 		"go_to_definition",     // Find where symbol is defined (use instead of grep)
@@ -125,6 +132,19 @@ func (a *CodeAgent) Execute(ctx context.Context, task *agent.Task) (*agent.Resul
 		a.RecordError("precondition_failed", "precondition", err.Error(), "", 0,
 			"Ensure prerequisites are met")
 		return result, err
+	}
+
+	// ✅ BRANCH-AWARE SAFETY CHECK - Extra caution on main/master branches
+	if taskCtx := a.GetCurrentContext(); taskCtx != nil {
+		if taskCtx.GitBranch == "master" || taskCtx.GitBranch == "main" {
+			// Extra caution on main branch
+			if !taskCtx.GitClean {
+				err := fmt.Errorf("refusing to modify files on %s with uncommitted changes - commit or stash first", taskCtx.GitBranch)
+				result.Success = false
+				result.Error = err.Error()
+				return result, err
+			}
+		}
 	}
 
 	// ✅ CRITICAL FIX: For ALL fix tasks, remove generate_code - force surgical editing only
@@ -601,6 +621,29 @@ func (a *CodeAgent) buildUserPrompt(task *agent.Task, currentCtx *contextpkg.Con
 	var prompt strings.Builder
 
 	prompt.WriteString(fmt.Sprintf("Task: %s\n\n", task.Description))
+
+	// Add git context if available
+	if taskCtx := a.GetCurrentContext(); taskCtx != nil && len(taskCtx.GitModifiedFiles) > 0 {
+		prompt.WriteString("🔀 **Git Context**:\n")
+		prompt.WriteString(fmt.Sprintf("- Branch: %s\n", taskCtx.GitBranch))
+		prompt.WriteString(fmt.Sprintf("- Modified files (%d):\n", len(taskCtx.GitModifiedFiles)))
+		for i, file := range taskCtx.GitModifiedFiles {
+			if i >= 5 {
+				prompt.WriteString(fmt.Sprintf("  ... and %d more\n", len(taskCtx.GitModifiedFiles)-5))
+				break
+			}
+			prompt.WriteString(fmt.Sprintf("  - %s\n", file))
+		}
+
+		if taskCtx.GitBranch != "master" && taskCtx.GitBranch != "main" {
+			prompt.WriteString("\n⚠️  You're on a feature branch. Consider reading modified files for context.\n")
+		}
+
+		if !taskCtx.GitClean {
+			prompt.WriteString("⚠️  Uncommitted changes detected. Use git_diff to see changes before modifying files.\n")
+		}
+		prompt.WriteString("\n")
+	}
 
 	// ✅ FIX 2 & 3: Special handling for FIX MODE tasks
 	if fixMode, ok := task.Input["fix_mode"].(bool); ok && fixMode {

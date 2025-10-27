@@ -35,6 +35,15 @@ type TaskContext struct {
 	CreatedFiles  []string // Files this task created
 	ModifiedFiles []string // Files this task modified
 
+	// Git Context (populated by manager when creating task)
+	GitRoot           string   // Git repository root (absolute path)
+	GitBranch         string   // Current branch name
+	GitModifiedFiles  []string // Modified files from git status
+	GitStagedFiles    []string // Staged files
+	GitUntrackedFiles []string // Untracked files
+	GitClean          bool     // No uncommitted changes
+	GitAheadBehind    string   // "ahead 2, behind 1" or empty
+
 	// Metadata
 	CreatedAt   time.Time
 	StartedAt   time.Time

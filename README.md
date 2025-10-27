@@ -9,8 +9,9 @@ Wilson is a Go-based CLI tool that orchestrates specialized AI agents to collabo
 - **Self-Healing Feedback Loop** - Automatic failure detection and recovery (93% success rate)
 - **Async Dual-Model Architecture** - Small chat model (always responsive) + large worker models (on-demand)
 - **Multi-Language LSP Support** - 6 code intelligence tools (diagnostics, navigation, refactoring) for Go, Python, JavaScript/TypeScript, Rust
+- **Git Context Integration** - 7 git tools, branch-aware safety, agents see modified files and repo state
 - **Smart Error Handling** - 80% of compile errors auto-fixed in <5s, complex errors escalated intelligently
-- **Context-Aware Execution** - Tasks inherit full context (project_path, dependency files, error history)
+- **Context-Aware Execution** - Tasks inherit full context (project_path, dependency files, git state, error history)
 - **Multi-Agent Collaboration** - Research, Code, Test, and Review agents work together autonomously
 - **Atomic Task Execution** - Each task = 1 file, dependency injection, zero "max iterations" errors
 - **Resource Efficient** - Kill-after-task strategy: 4GB idle, 12GB active, back to 4GB when done
@@ -316,8 +317,8 @@ On first run, Wilson automatically downloads MCP servers via `npx`.
 
 - **Codebase:** ~12,000 lines of Go
 - **Agents:** 6 (Chat, Manager, Code, Test, Research, Review)
-- **Tools:** 50+ (LSP: 6, Code Intelligence: 10, Filesystem: 9, Orchestration: 5, Web: 5, Context: 3, System: 2+)
-- **Tests:** 106+ (unit + integration + E2E feedback loop)
+- **Tools:** 57+ (LSP: 6, Git: 7, Code Intelligence: 10, Filesystem: 9, Orchestration: 5, Web: 5, Context: 3, System: 2+)
+- **Tests:** 111+ (unit + integration + E2E feedback loop)
 - **Success Rate:** 93% (up from 75% pre-feedback loop)
 - **Auto-Fix Rate:** 80% of compile errors resolved in <5s
 

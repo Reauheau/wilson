@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"wilson/agent"
 	"wilson/agent/base"
 	"wilson/agent/feedback"
+	"wilson/core/registry"
 	"wilson/llm"
 	"wilson/ui"
 )
@@ -757,6 +759,11 @@ func (m *ManagerAgent) ExecuteTaskPlan(ctx context.Context, parentTaskID int) er
 		// Create TaskContext with full execution context
 		taskCtx := NewTaskContext(task)
 
+		// Enrich with git context
+		if err := m.enrichTaskContextWithGit(taskCtx); err != nil {
+			fmt.Printf("[ManagerAgent] Warning: Failed to enrich git context: %v\n", err)
+		}
+
 		// Load artifacts from dependent tasks and inject into context
 		if err := m.injectDependencyContext(task, taskCtx); err != nil {
 			fmt.Printf("[ManagerAgent] Warning: Failed to load dependency context: %v\n", err)
@@ -1463,6 +1470,11 @@ func (m *ManagerAgent) handleDependencyRequest(ctx context.Context, fb *agent.Ag
 	// Create TaskContext for fix task
 	fixTaskCtx := NewTaskContext(depTask)
 
+	// Enrich with git context
+	if err := m.enrichTaskContextWithGit(fixTaskCtx); err != nil {
+		fmt.Printf("[ManagerAgent] Warning: Failed to enrich git context for fix task: %v\n", err)
+	}
+
 	// Execute fix task - use type assertion like we did earlier
 	ui.Printf("[ManagerAgent] Executing fix task %s with %s agent\n", depTask.TaskKey, agentInstance.Name())
 
@@ -1560,4 +1572,77 @@ func (m *ManagerAgent) escalateToUser(ctx context.Context, fb *agent.AgentFeedba
 
 	// For now, just log. Phase 2 could add user interaction
 	return nil
+}
+
+// enrichTaskContextWithGit populates git context fields in TaskContext
+func (m *ManagerAgent) enrichTaskContextWithGit(taskCtx *base.TaskContext) error {
+	// Get git_status tool from global registry
+	gitStatusTool, err := registry.GetTool("git_status")
+	if err != nil {
+		// Git tools not available - that's okay
+		return nil
+	}
+
+	// Get git status
+	result, err := gitStatusTool.Execute(context.Background(), map[string]interface{}{
+		"path": taskCtx.ProjectPath,
+	})
+	if err != nil {
+		// Not a git repo or git command failed - that's okay
+		return nil
+	}
+
+	// Parse JSON result
+	var status map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &status); err != nil {
+		return fmt.Errorf("failed to parse git status: %w", err)
+	}
+
+	// Populate git context
+	if gitRoot, ok := status["git_root"].(string); ok {
+		taskCtx.GitRoot = gitRoot
+	}
+	if branch, ok := status["branch"].(string); ok {
+		taskCtx.GitBranch = branch
+	}
+	taskCtx.GitModifiedFiles = toStringSlice(status["modified"])
+	taskCtx.GitStagedFiles = toStringSlice(status["staged"])
+	taskCtx.GitUntrackedFiles = toStringSlice(status["untracked"])
+	if clean, ok := status["clean"].(bool); ok {
+		taskCtx.GitClean = clean
+	}
+
+	// Parse ahead/behind
+	ahead := 0
+	behind := 0
+	if aheadFloat, ok := status["ahead"].(float64); ok {
+		ahead = int(aheadFloat)
+	}
+	if behindFloat, ok := status["behind"].(float64); ok {
+		behind = int(behindFloat)
+	}
+	if ahead > 0 || behind > 0 {
+		taskCtx.GitAheadBehind = fmt.Sprintf("ahead %d, behind %d", ahead, behind)
+	}
+
+	if taskCtx.GitBranch != "" {
+		fmt.Printf("[Manager] Git context enriched: branch=%s, modified=%d files\n",
+			taskCtx.GitBranch, len(taskCtx.GitModifiedFiles))
+	}
+
+	return nil
+}
+
+// toStringSlice converts []interface{} to []string
+func toStringSlice(val interface{}) []string {
+	if arr, ok := val.([]interface{}); ok {
+		result := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return []string{}
 }

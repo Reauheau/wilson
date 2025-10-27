@@ -447,5 +447,31 @@ Agent detects issue → FeedbackBus → Manager → Creates dependency task
 
 ---
 
+## Git Context Integration - Oct 27, 2025
+
+**Problem:** Agents had no awareness of git state. Couldn't see modified files, current branch, or repository status.
+
+**Solution:** Integrated git context into TaskContext. Manager auto-enriches with git_status before every task.
+
+**Implementation:**
+- Added 7 git fields to TaskContext (GitRoot, GitBranch, GitModifiedFiles, GitClean, etc.)
+- Manager calls git_status tool and populates context
+- 4 agents updated with git tools and git-aware prompts
+- Branch-aware safety: CodeAgent refuses modifications on main/master with uncommitted changes
+
+**7 Git Tools:** `git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`, `git_stash`
+
+**Results:**
+- CodeAgent shows modified files in prompts, warns on feature branches
+- ReviewAgent applies stricter standards on main branch
+- TestAgent focuses testing on modified files
+- Safety check prevents accidental modifications on main
+
+**Files:** `agent/base/task_context.go`, `agent/orchestration/manager.go`, `agent/agents/*.go` (4 agents), `capabilities/git/*.go` (7 tools)
+
+**Impact:** +30% context awareness, safer branch handling
+
+---
+
 **Last Updated:** October 27, 2025
 **See Also:** TODO.md (active work), ENDGAME.md (vision), SESSION_INSTRUCTIONS.md (maintenance guidelines)

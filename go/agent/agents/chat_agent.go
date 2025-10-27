@@ -33,6 +33,11 @@ func NewChatAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Chat
 		"check_task_status",
 		"get_task_queue",
 
+		// Git tools (answer user questions about git state)
+		"git_status", // Answer "what files did I change?"
+		"git_log",    // Answer "what were my recent commits?"
+		"git_branch", // Answer "what branch am I on?"
+
 		// Context and communication
 		"search_artifacts",
 		"retrieve_context",

@@ -26,6 +26,12 @@ func NewReviewAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Re
 		"read_file",
 		"search_files",
 		"list_files",
+		// Git tools (critical for reviewing changes)
+		"git_status", // Check what's being reviewed
+		"git_diff",   // Critical for reviewing changes
+		"git_log",    // Understand change history
+		"git_show",   // Inspect specific commits
+		"git_blame",  // Find code ownership
 		// Context operations
 		"search_artifacts",
 		"retrieve_context",
@@ -266,6 +272,19 @@ func (a *ReviewAgent) buildUserPrompt(task *agent.Task, currentCtx *contextpkg.C
 
 	prompt.WriteString("## Review Task\n\n")
 	prompt.WriteString(fmt.Sprintf("**Objective:** %s\n\n", task.Description))
+
+	// Add git context if available
+	if taskCtx := a.GetCurrentContext(); taskCtx != nil {
+		if taskCtx.GitBranch == "master" || taskCtx.GitBranch == "main" {
+			prompt.WriteString("⚠️  **CRITICAL**: Changes target main branch. Apply strictest review standards.\n")
+			prompt.WriteString("Check: security, breaking changes, backward compatibility, documentation.\n\n")
+		}
+
+		if len(taskCtx.GitModifiedFiles) > 10 {
+			prompt.WriteString(fmt.Sprintf("⚠️  **LARGE CHANGESET**: %d files modified. Focus on high-risk areas first.\n\n",
+				len(taskCtx.GitModifiedFiles)))
+		}
+	}
 
 	// Add context - review all relevant artifacts
 	if currentCtx != nil && len(currentCtx.Artifacts) > 0 {
