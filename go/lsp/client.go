@@ -386,6 +386,83 @@ func (c *Client) GetDocumentSymbols(ctx context.Context, uri string) ([]Document
 	return symbols, nil
 }
 
+// === Phase 2: Advanced LSP Methods ===
+
+// FindImplementations requests all implementations of an interface/type
+func (c *Client) FindImplementations(ctx context.Context, uri string, line, character int) ([]Location, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := ImplementationParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uri},
+			Position:     Position{Line: line, Character: character},
+		},
+	}
+
+	result, err := c.SendRequest(ctx, "textDocument/implementation", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var locations []Location
+	if err := json.Unmarshal(result, &locations); err != nil {
+		return nil, fmt.Errorf("failed to parse implementation result: %w", err)
+	}
+
+	return locations, nil
+}
+
+// GetTypeDefinition requests the type definition of a variable
+func (c *Client) GetTypeDefinition(ctx context.Context, uri string, line, character int) ([]Location, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := TypeDefinitionParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uri},
+			Position:     Position{Line: line, Character: character},
+		},
+	}
+
+	result, err := c.SendRequest(ctx, "textDocument/typeDefinition", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var locations []Location
+	if err := json.Unmarshal(result, &locations); err != nil {
+		return nil, fmt.Errorf("failed to parse type definition result: %w", err)
+	}
+
+	return locations, nil
+}
+
+// GetWorkspaceSymbols requests symbols across the entire workspace
+func (c *Client) GetWorkspaceSymbols(ctx context.Context, query string) ([]SymbolInformation, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	params := WorkspaceSymbolParams{
+		Query: query,
+	}
+
+	result, err := c.SendRequest(ctx, "workspace/symbol", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var symbols []SymbolInformation
+	if err := json.Unmarshal(result, &symbols); err != nil {
+		return nil, fmt.Errorf("failed to parse workspace symbols: %w", err)
+	}
+
+	return symbols, nil
+}
+
 // GetDiagnostics returns stored diagnostics for a file
 func (c *Client) GetDiagnostics(uri string) []Diagnostic {
 	c.diagnosticsMu.RLock()

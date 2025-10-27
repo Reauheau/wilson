@@ -209,3 +209,28 @@ const (
 	SymbolKindOperator      SymbolKind = 25
 	SymbolKindTypeParameter SymbolKind = 26
 )
+
+// === Phase 2: Advanced LSP Types ===
+
+// ImplementationParams represents parameters for find-implementations
+type ImplementationParams struct {
+	TextDocumentPositionParams
+}
+
+// TypeDefinitionParams represents parameters for type-definition
+type TypeDefinitionParams struct {
+	TextDocumentPositionParams
+}
+
+// WorkspaceSymbolParams represents parameters for workspace symbol search
+type WorkspaceSymbolParams struct {
+	Query string `json:"query"`
+}
+
+// SymbolInformation represents symbol information (workspace scope)
+type SymbolInformation struct {
+	Name          string     `json:"name"`
+	Kind          SymbolKind `json:"kind"`
+	Location      Location   `json:"location"`
+	ContainerName string     `json:"containerName,omitempty"`
+}

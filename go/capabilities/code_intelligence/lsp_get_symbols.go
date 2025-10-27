@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"wilson/core/registry"
 	. "wilson/core/types"
@@ -29,9 +30,23 @@ func (t *LSPGetSymbolsTool) Metadata() ToolMetadata {
 			{
 				Name:        "file",
 				Type:        "string",
-				Required:    true,
-				Description: "File to analyze",
+				Required:    false,
+				Description: "File to analyze (required for document scope)",
 				Example:     "agent/code_agent.go",
+			},
+			{
+				Name:        "scope",
+				Type:        "string",
+				Required:    false,
+				Description: "Scope: document (analyze single file) or workspace (search entire project). Default: document",
+				Example:     "workspace",
+			},
+			{
+				Name:        "query",
+				Type:        "string",
+				Required:    false,
+				Description: "Search query (required for workspace scope, e.g., 'Validate', 'Handler', 'Agent')",
+				Example:     "Validate",
 			},
 			{
 				Name:        "filter",
@@ -44,24 +59,51 @@ func (t *LSPGetSymbolsTool) Metadata() ToolMetadata {
 		Examples: []string{
 			`{"tool": "get_symbols", "arguments": {"file": "agent/code_agent.go"}}`,
 			`{"tool": "get_symbols", "arguments": {"file": "main.go", "filter": "functions"}}`,
+			`{"tool": "get_symbols", "arguments": {"scope": "workspace", "query": "Validate"}}`,
+			`{"tool": "get_symbols", "arguments": {"scope": "workspace", "query": "Agent", "filter": "types"}}`,
 		},
 	}
 }
 
 // Validate validates the arguments
 func (t *LSPGetSymbolsTool) Validate(args map[string]interface{}) error {
-	if _, ok := args["file"]; !ok {
-		return fmt.Errorf("file is required")
+	scope := "document" // default
+	if scopeVal, ok := args["scope"]; ok {
+		scope = scopeVal.(string)
 	}
+
+	if scope == "workspace" {
+		// Workspace scope requires query
+		if _, ok := args["query"]; !ok {
+			return fmt.Errorf("query is required for workspace scope")
+		}
+	} else {
+		// Document scope requires file
+		if _, ok := args["file"]; !ok {
+			return fmt.Errorf("file is required for document scope")
+		}
+	}
+
 	return nil
 }
 
-// Execute gets all symbols in a document
+// Execute gets symbols (document or workspace scope)
 func (t *LSPGetSymbolsTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
 	if packageLSPManager == nil {
 		return "", fmt.Errorf("LSP manager not initialized")
 	}
 
+	// Check scope
+	scope := "document" // default
+	if scopeVal, ok := args["scope"]; ok {
+		scope = scopeVal.(string)
+	}
+
+	if scope == "workspace" {
+		return t.executeWorkspaceSymbols(ctx, args)
+	}
+
+	// Document scope (original behavior)
 	filePath := args["file"].(string)
 
 	// Make path absolute
@@ -189,6 +231,111 @@ func (t *LSPGetSymbolsTool) Execute(ctx context.Context, args map[string]interfa
 				result["symbol_count"], len(functions), len(types), len(variables))
 		} else {
 			result["message"] = fmt.Sprintf("Found %d %s", result["symbol_count"], filter)
+		}
+	}
+
+	output, _ := json.MarshalIndent(result, "", "  ")
+	return string(output), nil
+}
+
+// executeWorkspaceSymbols searches for symbols across entire workspace
+func (t *LSPGetSymbolsTool) executeWorkspaceSymbols(ctx context.Context, args map[string]interface{}) (string, error) {
+	query := args["query"].(string)
+
+	// Get filter (default: all)
+	filter := "all"
+	if filterVal, ok := args["filter"]; ok {
+		filter = filterVal.(string)
+	}
+
+	// Get any LSP client to use for workspace search (use Go as default)
+	client, err := packageLSPManager.GetClient(ctx, "go")
+	if err != nil {
+		return "", fmt.Errorf("failed to get LSP client: %w", err)
+	}
+
+	// Search workspace symbols
+	symbols, err := client.GetWorkspaceSymbols(ctx, query)
+	if err != nil {
+		return "", fmt.Errorf("workspace symbol search failed: %w", err)
+	}
+
+	// Build result
+	result := map[string]interface{}{
+		"scope":        "workspace",
+		"query":        query,
+		"filter":       filter,
+		"symbol_count": 0,
+	}
+
+	// Categorize symbols
+	functions := []map[string]interface{}{}
+	types := []map[string]interface{}{}
+	variables := []map[string]interface{}{}
+	other := []map[string]interface{}{}
+
+	for _, sym := range symbols {
+		// Extract file from URI
+		file := sym.Location.URI
+		if strings.HasPrefix(file, "file://") {
+			file = strings.TrimPrefix(file, "file://")
+		}
+
+		symbolInfo := map[string]interface{}{
+			"name":      sym.Name,
+			"kind":      symbolKindToString(sym.Kind),
+			"file":      file,
+			"line":      sym.Location.Range.Start.Line + 1, // Convert to 1-based
+			"container": sym.ContainerName,
+		}
+
+		// Categorize by kind
+		switch sym.Kind {
+		case lsp.SymbolKindFunction, lsp.SymbolKindMethod, lsp.SymbolKindConstructor:
+			functions = append(functions, symbolInfo)
+		case lsp.SymbolKindClass, lsp.SymbolKindInterface, lsp.SymbolKindStruct, lsp.SymbolKindEnum:
+			types = append(types, symbolInfo)
+		case lsp.SymbolKindVariable, lsp.SymbolKindConstant, lsp.SymbolKindField, lsp.SymbolKindProperty:
+			variables = append(variables, symbolInfo)
+		default:
+			other = append(other, symbolInfo)
+		}
+	}
+
+	// Build result based on filter
+	switch filter {
+	case "functions":
+		result["symbols"] = functions
+		result["symbol_count"] = len(functions)
+	case "types":
+		result["symbols"] = types
+		result["symbol_count"] = len(types)
+	case "variables":
+		result["symbols"] = variables
+		result["symbol_count"] = len(variables)
+	default: // "all"
+		result["functions"] = functions
+		result["types"] = types
+		result["variables"] = variables
+		result["other"] = other
+		result["symbol_count"] = len(functions) + len(types) + len(variables) + len(other)
+		result["counts"] = map[string]int{
+			"functions": len(functions),
+			"types":     len(types),
+			"variables": len(variables),
+			"other":     len(other),
+		}
+	}
+
+	// Add summary
+	if result["symbol_count"].(int) == 0 {
+		result["message"] = fmt.Sprintf("No symbols matching '%s' found in workspace", query)
+	} else {
+		if filter == "all" {
+			result["message"] = fmt.Sprintf("Found %d symbols matching '%s' (%d functions, %d types, %d variables)",
+				result["symbol_count"], query, len(functions), len(types), len(variables))
+		} else {
+			result["message"] = fmt.Sprintf("Found %d %s matching '%s'", result["symbol_count"], filter, query)
 		}
 	}
 

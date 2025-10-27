@@ -45,11 +45,13 @@ func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *Code
 		// Code generation (CRITICAL - use this instead of writing code yourself!)
 		"generate_code", // Calls specialist code model to generate actual code
 		// ===== LSP Code Intelligence (Phase 1) - PREFERRED =====
-		"get_diagnostics",  // Real-time errors/warnings from language server (CRITICAL)
-		"go_to_definition", // Find where symbol is defined (use instead of grep)
-		"find_references",  // Find all usages of symbol (use for impact analysis)
-		"get_hover_info",   // Get signature and documentation (fast lookup)
-		"get_symbols",      // List functions/types in file (use instead of parse_file)
+		"get_diagnostics",      // Real-time errors/warnings from language server (CRITICAL)
+		"go_to_definition",     // Find where symbol is defined (use instead of grep)
+		"find_references",      // Find all usages of symbol (use for impact analysis)
+		"get_hover_info",       // Get signature and documentation (fast lookup)
+		"get_symbols",          // List functions/types in file or search workspace
+		"find_implementations", // Find types implementing interface (Phase 2)
+		"get_type_definition",  // Jump to type definition of variable (Phase 2)
 		// ===== Legacy AST Tools (use only when LSP not available) =====
 		"parse_file",      // Deep AST analysis (use only for advanced cases)
 		"analyze_imports", // Analyze and manage imports (no LSP equivalent yet)
