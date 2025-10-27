@@ -585,7 +585,7 @@ NOW: Analyze the user's request and decompose it into subtasks.`
 		},
 	}
 
-	_, err := m.llmManager.Generate(ctx, llm.PurposeChat, req)
+	_, err := m.llmManager.Generate(ctx, llm.PurposePlanning, req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate decomposition: %w", err)
 	}

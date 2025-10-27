@@ -26,10 +26,9 @@ type CodeAgent struct {
 
 // NewCodeAgent creates a new code agent
 func NewCodeAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *CodeAgent {
-	// CRITICAL: Use chat model instead of code model
-	// qwen2.5:7b is much better at structured output (tool calls) than qwen2.5-coder:14b
-	// The code model tends to hallucinate descriptions instead of generating JSON
-	base := base.NewBaseAgent("Code", llm.PurposeChat, llmManager, contextMgr)
+	// Use orchestration model for tool calling (hermes3:8b)
+	// Specialized for reliable JSON generation and precise tool selection
+	base := base.NewBaseAgent("Code", llm.PurposeOrchestration, llmManager, contextMgr)
 
 	// Code-specific tools
 	base.SetAllowedTools([]string{

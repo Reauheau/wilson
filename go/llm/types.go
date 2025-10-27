@@ -6,10 +6,12 @@ import "context"
 type Purpose string
 
 const (
-	PurposeChat     Purpose = "chat"
-	PurposeAnalysis Purpose = "analysis"
-	PurposeCode     Purpose = "code"
-	PurposeVision   Purpose = "vision"
+	PurposeChat          Purpose = "chat"
+	PurposeOrchestration Purpose = "orchestration" // Tool calling and task orchestration
+	PurposePlanning      Purpose = "planning"      // Task decomposition and strategic planning
+	PurposeAnalysis      Purpose = "analysis"
+	PurposeCode          Purpose = "code"
+	PurposeVision        Purpose = "vision"
 )
 
 // Message represents a single message in a conversation
@@ -20,19 +22,19 @@ type Message struct {
 
 // Request represents a request to an LLM
 type Request struct {
-	Messages    []Message       `json:"messages"`
-	Temperature float64         `json:"temperature,omitempty"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Stream      bool            `json:"stream,omitempty"`
-	Options     map[string]any  `json:"options,omitempty"`
+	Messages    []Message      `json:"messages"`
+	Temperature float64        `json:"temperature,omitempty"`
+	MaxTokens   int            `json:"max_tokens,omitempty"`
+	Stream      bool           `json:"stream,omitempty"`
+	Options     map[string]any `json:"options,omitempty"`
 }
 
 // Response represents a response from an LLM
 type Response struct {
-	Content      string         `json:"content"`
-	Model        string         `json:"model"`
-	TokensUsed   int            `json:"tokens_used,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
+	Content    string         `json:"content"`
+	Model      string         `json:"model"`
+	TokensUsed int            `json:"tokens_used,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // Client defines the interface for interacting with LLM providers
@@ -52,13 +54,13 @@ type Client interface {
 
 // Config represents configuration for a specific LLM instance
 type Config struct {
-	Provider     string         `yaml:"provider"`
-	Model        string         `yaml:"model"`
-	Temperature  float64        `yaml:"temperature"`
-	BaseURL      string         `yaml:"base_url,omitempty"`
-	APIKey       string         `yaml:"api_key,omitempty"`
-	Fallback     string         `yaml:"fallback,omitempty"` // Fallback model name
-	Options      map[string]any `yaml:"options,omitempty"`
-	KeepAlive    bool           `yaml:"keep_alive"`         // Never unload model (for Wilson's chat model)
-	IdleTimeout  int            `yaml:"idle_timeout"`       // Seconds before unloading (0 = immediate)
+	Provider    string         `yaml:"provider"`
+	Model       string         `yaml:"model"`
+	Temperature float64        `yaml:"temperature"`
+	BaseURL     string         `yaml:"base_url,omitempty"`
+	APIKey      string         `yaml:"api_key,omitempty"`
+	Fallback    string         `yaml:"fallback,omitempty"` // Fallback model name
+	Options     map[string]any `yaml:"options,omitempty"`
+	KeepAlive   bool           `yaml:"keep_alive"`   // Never unload model (for Wilson's chat model)
+	IdleTimeout int            `yaml:"idle_timeout"` // Seconds before unloading (0 = immediate)
 }

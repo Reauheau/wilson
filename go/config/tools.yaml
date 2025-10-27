@@ -38,13 +38,25 @@ ollama:
 llms:
   chat:
     provider: "ollama"
-    model: "hermes3:8b"  # Chat agent - always loaded, handles tool calling
-    temperature: 0.1  # Low temperature for reliable tool calling
+    model: "hermes3:8b"  # User interaction - always loaded
+    temperature: 0.1
+    base_url: "http://localhost:11434"
+
+  orchestration:
+    provider: "ollama"
+    model: "hermes3:8b"  # Tool calling and task orchestration (reuses chat model, no extra memory!)
+    temperature: 0.1
+    base_url: "http://localhost:11434"
+
+  planning:
+    provider: "ollama"
+    model: "qwen2.5:14b"  # Task decomposition and strategic planning
+    temperature: 0.3
     base_url: "http://localhost:11434"
 
   analysis:
     provider: "ollama"
-    model: "qwen2.5:7b"  # Research/analysis tasks
+    model: "qwen2.5:14b"  # Research/analysis/review tasks (upgraded for better reasoning)
     temperature: 0.3
     base_url: "http://localhost:11434"
 

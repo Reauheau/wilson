@@ -21,9 +21,9 @@ type TestAgent struct {
 
 // NewTestAgent creates a new test agent
 func NewTestAgent(llmManager *llm.Manager, contextMgr *contextpkg.Manager) *TestAgent {
-	// Use Code LLM - better at structured JSON output for tool calls
-	// Chat LLM struggles with JSON generation and often produces invalid JSON
-	base := base.NewBaseAgent("Test", llm.PurposeCode, llmManager, contextMgr)
+	// Use orchestration model for tool calling (hermes3:8b)
+	// Specialized for reliable JSON generation and consistent tool selection
+	base := base.NewBaseAgent("Test", llm.PurposeOrchestration, llmManager, contextMgr)
 
 	// Test-specific tools
 	base.SetAllowedTools([]string{
