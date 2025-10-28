@@ -16,15 +16,15 @@ import (
 	"wilson/setup"
 	"wilson/ui"
 
-	_ "wilson/capabilities/code_intelligence/analysis" // Code intelligence: Analysis tools (Phase 3)
-	_ "wilson/capabilities/code_intelligence/ast"      // Code intelligence: AST tools (Phase 1)
-	_ "wilson/capabilities/code_intelligence/build"    // Code intelligence: Build tools (Phase 2)
-	_ "wilson/capabilities/code_intelligence/quality"  // Code intelligence: Quality tools (Phase 4)
-	_ "wilson/capabilities/context"                    // Context management tools
-	_ "wilson/capabilities/filesystem"                 // Filesystem tools
-	_ "wilson/capabilities/git"                        // Git tools
-	_ "wilson/capabilities/orchestration"              // Multi-agent orchestration tools
-	_ "wilson/capabilities/system"                     // System tools
+	_ "wilson/capabilities/code_intelligence/analysis"
+	_ "wilson/capabilities/code_intelligence/ast"
+	_ "wilson/capabilities/code_intelligence/build"
+	_ "wilson/capabilities/code_intelligence/quality"
+	_ "wilson/capabilities/context"
+	_ "wilson/capabilities/filesystem"
+	_ "wilson/capabilities/git"
+	_ "wilson/capabilities/orchestration"
+	_ "wilson/capabilities/system"
 )
 
 func main() {
