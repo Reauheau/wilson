@@ -14,13 +14,30 @@ import (
 var (
 	projectRootOverride string
 	projectRootMu       sync.RWMutex
+	globalManager       *Manager // Track global manager for restart
 )
 
-// SetProjectRoot sets the project root for LSP initialization
-func SetProjectRoot(path string) {
+// SetGlobalManager sets the global manager for LSP restart on project change
+func SetGlobalManager(manager *Manager) {
 	projectRootMu.Lock()
 	defer projectRootMu.Unlock()
+	globalManager = manager
+}
+
+// SetProjectRoot sets the project root for LSP initialization
+// If LSP clients are already running, they will be restarted with the new root
+func SetProjectRoot(path string) {
+	projectRootMu.Lock()
+	oldRoot := projectRootOverride
 	projectRootOverride = path
+	manager := globalManager
+	projectRootMu.Unlock()
+
+	// If project root changed and we have a manager, restart all clients
+	// This ensures LSP works with the new project directory
+	if oldRoot != path && manager != nil && path != "" {
+		manager.StopAll() // Restart will happen on next GetClient call
+	}
 }
 
 // ClearProjectRoot clears the project root override

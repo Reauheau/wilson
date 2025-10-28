@@ -36,6 +36,7 @@ func Initialize(ctx context.Context, cfg *config.Config) (*Bootstrap, error) {
 	// Initialize LSP Manager for code intelligence
 	b.LSPManager = lsp.NewManager()
 	code_intelligence.SetLSPManager(b.LSPManager)
+	lsp.SetGlobalManager(b.LSPManager) // Enable LSP restart on project change
 
 	// Initialize Context Store
 	b.ContextManager = InitializeContextManager(cfg)

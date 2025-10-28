@@ -906,8 +906,12 @@ func (m *ManagerAgent) needsDecomposition(request string) bool {
 		"and write", "also write", "also create",
 		"testfile", "test file",
 
-		// Multiple actions
+		// Multiple actions - test-related
 		"write tests", "create tests", "add tests",
+		"include tests", "also provide a test", "provide test",
+		"with tests", "and tests",
+
+		// Build/execute actions
 		"and build", "and compile", "and execute",
 		"and run", "then run", "then build",
 
