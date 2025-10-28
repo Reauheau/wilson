@@ -62,7 +62,7 @@ llms:
 
   code:
     provider: "ollama"
-    model: "deepseek-r1:14b"  # Reasoning model for code generation (better atomic tasks)
+    model: "qwen2.5-coder:14b"  # Reasoning model for code generation (better atomic tasks)
     temperature: 0.1
     base_url: "http://localhost:11434"
 

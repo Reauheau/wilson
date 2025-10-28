@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -686,6 +687,12 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.diagnosticsMu.Lock()
 		c.diagnostics[diagParams.URI] = diagParams.Diagnostics
 		c.diagnosticsMu.Unlock()
+
+		// Only log diagnostics for files within the workspace root
+		// This prevents pollution from Wilson's own codebase files
+		if !strings.HasPrefix(diagParams.URI, c.rootURI) {
+			return // Skip diagnostics outside workspace
+		}
 
 		// Log diagnostic count
 		errorCount := 0
