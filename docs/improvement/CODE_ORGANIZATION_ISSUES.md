@@ -4,40 +4,43 @@ Functions in illogical locations that violate architectural boundaries.
 
 ---
 
-## High Priority
+## ✅ Completed Issues
 
-### 1. CheckAndNotifyCompletedTasks - UI doing orchestration logic
+### ~~1. CheckAndNotifyCompletedTasks - UI doing orchestration logic~~ ✅ **FIXED**
 
-**Current**: `interface/chat/interface.go:124-148`
+**Implementation**: Commit `672f9fa` (Oct 28, 2024)
+- ✅ Created `GetNewlyCompletedTasks()` in coordinator (orchestration layer)
+- ✅ Created `TaskNotification` DTO in `ui/task_notification.go`
+- ✅ Created `DisplayTaskCompletionNotifications()` in `ui/notifications.go`
+- ✅ Updated main.go to coordinate between layers
+- ✅ Removed `CheckAndNotifyCompletedTasks` from `interface/chat`
+- **Result**: Clean layer separation - orchestration provides data, UI displays it, main.go coordinates
 
-**Problem**:
-- Chat interface queries orchestration coordinator directly
-- Business logic (task monitoring) mixed with UI layer
-- Tight coupling: UI → Orchestration
-
-**Fix**:
-- Move to `agent/orchestration` package
-- Chat interface should only display notifications, not fetch them
-- Coordinator should expose `GetCompletedTasks()` or similar
-- Main.go coordinates between orchestration and UI
+**Files Changed**:
+- `agent/orchestration/coordinator.go` - Added `GetNewlyCompletedTasks()`
+- `ui/task_notification.go` - NEW: DTO for passing data between layers
+- `ui/notifications.go` - NEW: Display functions
+- `interface/chat/interface.go` - Removed UI logic (71 lines)
+- `main.go` - Coordinates between layers
 
 ---
 
-### 2. requestConfirmation - Core logic doing UI
+### ~~2. requestConfirmation - Core logic doing UI~~ ✅ **FIXED**
 
-**Current**: `core/registry/executor.go:152-170`
+**Implementation**: (Oct 28, 2024)
+- ✅ Created `ConfirmationHandler` interface in `core/registry/confirmation.go`
+- ✅ Created `TerminalConfirmation` implementation in `ui/confirmation.go`
+- ✅ Created test implementations (`AlwaysConfirm`, `AlwaysDeny`)
+- ✅ Updated Executor to use injected handler
+- ✅ Removed `requestConfirmation()` method and UI dependencies
+- ✅ Updated main.go to inject terminal confirmation
+- **Result**: Core logic is now 100% UI-agnostic and testable
 
-**Problem**:
-- Executor uses `fmt.Printf`, `bufio.Scanner`, `os.Stdin` directly
-- Core business logic should be UI-agnostic
-- Makes testing difficult (can't mock user input)
-- Violates separation of concerns
-
-**Fix**:
-- Create `ConfirmationHandler` interface in executor
-- Move stdin-based implementation to `ui` or `interface/chat`
-- Executor accepts handler via constructor or field
-- Main.go wires up the concrete implementation
+**Files Changed**:
+- `core/registry/confirmation.go` - NEW: Interface and test implementations
+- `ui/confirmation.go` - NEW: Terminal UI implementation
+- `core/registry/executor.go` - Removed UI logic, uses interface
+- `main.go` - Injects `TerminalConfirmation`
 
 ---
 
@@ -114,8 +117,8 @@ code_intelligence.SetLLMManager(manager)
 
 ## Implementation Order
 
-1. **requestConfirmation** - Most critical architectural violation
-2. **CheckAndNotifyCompletedTasks** - Clear layer violation
+1. ~~**requestConfirmation**~~ - ✅ **DONE** (Strategy Pattern with DI)
+2. ~~**CheckAndNotifyCompletedTasks**~~ - ✅ **DONE** (Observer Pattern)
 3. **ollama.Init** - Quick fix, clarify architecture
 4. **SetLLMManager** - Requires design decision
 5. **Command parsing** - Nice polish
@@ -125,6 +128,7 @@ code_intelligence.SetLLMManager(manager)
 
 ## Notes
 
-- Issues #1 and #2 are the most important - they violate clear boundaries
-- Helper functions in executor (findSimilarTools, formatArgs, levenshteinDistance) are fine where they are
+- ~~Issues #1 and #2 are the most important~~ - ✅ **COMPLETED** (Oct 28, 2024)
+- Helper functions in executor (findSimilarTools, levenshteinDistance) are fine where they are
 - Overall architecture is clean, these are minor issues that accumulated over time
+- Issues #1 and #2 now serve as good examples of proper layer separation for future refactoring
