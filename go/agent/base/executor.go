@@ -307,14 +307,56 @@ func (ate *AgentToolExecutor) ExecuteAgentResponse(
 							Role:    "assistant",
 							Content: fmt.Sprintf(`{"tool": "get_diagnostics", "arguments": {"path": "%s"}}`, targetPath),
 						})
+
+						// ✅ Build structured fix prompt with file content and tool guidance
+						fixPrompt := fmt.Sprintf("LSP diagnostics detected errors:\n%s", diagResult)
+
+						// ✅ Parse LSP errors to extract details
+						var lspErrors []map[string]interface{}
+						if errorsArray, ok := diagData["errors"].([]interface{}); ok {
+							for _, err := range errorsArray {
+								if errMap, ok := err.(map[string]interface{}); ok {
+									lspErrors = append(lspErrors, errMap)
+								}
+							}
+						}
+
+						// ✅ Inject file content and edit_line guidance (same pattern as compile error handler)
+						if len(lspErrors) > 0 {
+							// Read current file content
+							if content, err := os.ReadFile(targetPath); err == nil {
+								fixPrompt += fmt.Sprintf("\n\n**Current File Content** (%s):\n```go\n%s\n```\n\n", targetPath, string(content))
+								fixPrompt += "**CRITICAL: Use edit_line tool to fix errors**\n"
+								fixPrompt += "For each error:\n"
+								fixPrompt += "1. Extract line number from error range (0-indexed in LSP, add 1 for edit_line)\n"
+								fixPrompt += "2. Read that line from the file content above\n"
+								fixPrompt += "3. Fix the issue on that specific line\n"
+								fixPrompt += "4. Call: {\"tool\": \"edit_line\", \"arguments\": {\"path\": \"%s\", \"line\": N, \"new_content\": \"fixed line\"}}\n\n"
+
+								// ✅ Provide specific guidance for common LSP errors
+								firstError := lspErrors[0]
+								if msg, ok := firstError["message"].(string); ok {
+									if strings.Contains(msg, "imported and not used") {
+										fixPrompt += "**For unused imports**: Remove the entire import line using edit_line. Do NOT regenerate the whole file.\n"
+									} else if strings.Contains(msg, "undefined") {
+										fixPrompt += "**For undefined references**: Add the missing import or fix the name using edit_line. Do NOT regenerate the whole file.\n"
+									} else if strings.Contains(msg, "expected") && strings.Contains(msg, "found") {
+										fixPrompt += "**For syntax errors**: Fix the specific syntax issue on that line using edit_line. Do NOT regenerate the whole file.\n"
+									}
+								}
+							} else {
+								fmt.Printf("[AgentExecutor] Warning: Could not read %s for LSP fix context: %v\n", targetPath, err)
+							}
+						}
+
 						conversationHistory = append(conversationHistory, llm.Message{
 							Role:    "user",
-							Content: fmt.Sprintf("LSP diagnostics detected errors:\n%s\n\nPlease fix these errors before proceeding.", diagResult),
+							Content: fixPrompt,
 						})
 
 						// For simple errors with remaining iterations, let LLM fix
 						if i < 3 {
-							ui.Printf("[AgentExecutor] Giving LLM chance to fix LSP-detected errors\n")
+							ui.Printf("[AgentExecutor] Giving LLM chance to fix LSP-detected errors with edit_line\n")
 							continue // Go to next iteration - LLM will attempt fixes
 						}
 

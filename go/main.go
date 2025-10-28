@@ -70,8 +70,9 @@ func main() {
 	// Create chat interface
 	chatUI := chatinterface.NewInterface()
 
-	// Create executor for tool execution
-	executor := registry.NewExecutor()
+	// Create executor with terminal confirmation handler for tool execution
+	// Uses dependency injection to separate core logic from UI
+	executor := registry.NewExecutorWithConfirmation(&ui.TerminalConfirmation{})
 
 	// Set up status handler for tool execution
 	executor.StatusHandler = func(toolName string, phase string) {

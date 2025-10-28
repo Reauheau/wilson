@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,15 +15,24 @@ import (
 
 // Executor handles tool execution with confirmation logic
 type Executor struct {
-	AutoConfirm   bool                                // If true, skip confirmation (useful for testing)
-	UserQuery     string                              // Track the original user query for audit logging
-	StatusHandler func(toolName string, phase string) // Optional callback for status updates
+	ConfirmationHandler ConfirmationHandler                 // Handler for confirmation prompts (required)
+	UserQuery           string                              // Track the original user query for audit logging
+	StatusHandler       func(toolName string, phase string) // Optional callback for status updates
 }
 
-// NewExecutor creates a new tool executor
+// NewExecutor creates a new tool executor with the specified confirmation handler
+// For backward compatibility with tests that used AutoConfirm, use AlwaysConfirm handler
 func NewExecutor() *Executor {
 	return &Executor{
-		AutoConfirm: false,
+		ConfirmationHandler: &AlwaysConfirm{}, // Default: auto-confirm for backward compatibility
+	}
+}
+
+// NewExecutorWithConfirmation creates an executor with a custom confirmation handler
+// This is the recommended constructor for production code
+func NewExecutorWithConfirmation(handler ConfirmationHandler) *Executor {
+	return &Executor{
+		ConfirmationHandler: handler,
 	}
 }
 
@@ -64,8 +72,20 @@ func (e *Executor) Execute(ctx context.Context, call ToolCall) (string, error) {
 	confirmed := true
 	userDeclined := false
 
-	if requiresConfirm && !e.AutoConfirm {
-		if !e.requestConfirmation(metadata, call.Arguments) {
+	if requiresConfirm {
+		// Use injected confirmation handler
+		if e.ConfirmationHandler == nil {
+			return "", fmt.Errorf("confirmation required but no handler configured for tool '%s'", metadata.Name)
+		}
+
+		req := ConfirmationRequest{
+			ToolName:    metadata.Name,
+			Description: metadata.Description,
+			RiskLevel:   string(metadata.RiskLevel),
+			Arguments:   call.Arguments,
+		}
+
+		if !e.ConfirmationHandler.RequestConfirmation(req) {
 			userDeclined = true
 			duration := time.Since(startTime)
 
@@ -149,26 +169,6 @@ func (e *Executor) Execute(ctx context.Context, call ToolCall) (string, error) {
 	return result, execErr
 }
 
-// requestConfirmation asks the user to confirm a risky operation
-func (e *Executor) requestConfirmation(metadata ToolMetadata, args map[string]interface{}) bool {
-	fmt.Println()
-	fmt.Printf("⚠️  Confirmation Required\n")
-	fmt.Printf("Tool: %s\n", metadata.Name)
-	fmt.Printf("Risk Level: %s\n", metadata.RiskLevel)
-	fmt.Printf("Description: %s\n", metadata.Description)
-	fmt.Printf("Arguments: %s\n", formatArgs(args))
-	fmt.Println()
-	fmt.Print("Allow execution? (y/n): ")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	if scanner.Scan() {
-		response := strings.ToLower(strings.TrimSpace(scanner.Text()))
-		return response == "y" || response == "yes"
-	}
-
-	return false
-}
-
 // findSimilarTools finds tool names that are similar to the requested name
 func (e *Executor) findSimilarTools(requested string) []string {
 	allTools := GetAllToolNames()
@@ -192,15 +192,6 @@ func (e *Executor) findSimilarTools(requested string) []string {
 	}
 
 	return similar
-}
-
-// formatArgs formats arguments for display
-func formatArgs(args map[string]interface{}) string {
-	data, err := json.MarshalIndent(args, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("%v", args)
-	}
-	return string(data)
 }
 
 // levenshteinDistance calculates the Levenshtein distance between two strings
