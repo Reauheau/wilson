@@ -50,7 +50,6 @@ models/
 
 # IDEs and AI assistants
 .idea/
-.vscode/
 .claude/
 *.swp
 *.swo
@@ -64,3 +63,7 @@ models/
 .Trashes
 ehthumbs.db
 Thumbs.db
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
+branch_structure.json
