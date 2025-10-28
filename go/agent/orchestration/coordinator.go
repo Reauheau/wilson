@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"wilson/agent"
 	"wilson/llm"
+	"wilson/ui"
 )
 
 // Coordinator manages agent execution and task delegation
@@ -273,6 +274,52 @@ func (c *Coordinator) GetActiveTasks() []*agent.Task {
 	}
 
 	return tasks
+}
+
+// GetNewlyCompletedTasks returns tasks that completed since the last check
+// This method implements proper separation of concerns:
+// - Business logic (tracking completed tasks) stays in orchestration layer
+// - Returns data for UI to display, without UI querying orchestration directly
+// - Main.go coordinates between layers by calling this and passing results to UI
+func (c *Coordinator) GetNewlyCompletedTasks(lastSeen map[string]bool) ([]ui.TaskNotification, map[string]bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var notifications []ui.TaskNotification
+	currentCompleted := make(map[string]bool)
+
+	// Iterate through all tasks to find completed ones
+	for _, task := range c.tasks {
+		// Check if task is in a terminal state
+		if task.Status == agent.TaskCompleted || task.Status == agent.TaskFailed {
+			currentCompleted[task.ID] = true
+
+			// Is this a new completion (not seen before)?
+			if lastSeen == nil || !lastSeen[task.ID] {
+				result, _ := c.results[task.ID]
+
+				notification := ui.TaskNotification{
+					TaskID:    task.ID,
+					Type:      task.Type,
+					AgentName: task.AgentName,
+				}
+
+				if result != nil {
+					notification.Success = result.Success
+					notification.Output = result.Output
+					notification.Error = result.Error
+				} else {
+					// No result found - treat as failure
+					notification.Success = false
+					notification.Error = "No result available"
+				}
+
+				notifications = append(notifications, notification)
+			}
+		}
+	}
+
+	return notifications, currentCompleted
 }
 
 // GetResult retrieves a task result

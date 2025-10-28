@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"wilson/agent/chat"
+	"wilson/agent/orchestration"
 	"wilson/config"
 	"wilson/core/registry"
 	chatinterface "wilson/interface/chat"
@@ -102,7 +103,14 @@ func main() {
 		}
 
 		// Check for completed background tasks and notify
-		completedTasks = chatUI.CheckAndNotifyCompletedTasks(completedTasks)
+		// Proper layer separation: orchestration provides data, UI displays it, main.go coordinates
+		if coordinator := orchestration.GetGlobalCoordinator(); coordinator != nil {
+			notifications, newState := coordinator.GetNewlyCompletedTasks(completedTasks)
+			completedTasks = newState
+			if len(notifications) > 0 {
+				ui.DisplayTaskCompletionNotifications(notifications)
+			}
+		}
 
 		// Read user input
 		userInput, err := chatUI.ReadInput()
