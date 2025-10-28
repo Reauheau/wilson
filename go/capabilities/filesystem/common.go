@@ -4,11 +4,49 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"wilson/config"
 )
 
+// currentProjectPath holds the active project path for this execution
+// Set by agents before tool execution to override default workspace
+var (
+	currentProjectPath string
+	projectPathMu      sync.RWMutex
+)
+
+// SetProjectPath sets the project path for current execution
+// This overrides the default workspace for file operations
+func SetProjectPath(path string) {
+	projectPathMu.Lock()
+	defer projectPathMu.Unlock()
+	currentProjectPath = path
+}
+
+// GetProjectPath returns the current project path override (if set)
+func GetProjectPath() string {
+	projectPathMu.RLock()
+	defer projectPathMu.RUnlock()
+	return currentProjectPath
+}
+
+// ClearProjectPath clears the project path override
+func ClearProjectPath() {
+	projectPathMu.Lock()
+	defer projectPathMu.Unlock()
+	currentProjectPath = ""
+}
+
 // GetSafeWorkspace returns the configured safe workspace directory
+// If a project path override is set, returns that instead
 func GetSafeWorkspace() string {
+	projectPathMu.RLock()
+	override := currentProjectPath
+	projectPathMu.RUnlock()
+
+	if override != "" {
+		return override
+	}
 	return config.GetWorkspacePath()
 }
 

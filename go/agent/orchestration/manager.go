@@ -1071,14 +1071,16 @@ func extractProjectPath(request string) string {
 		path := strings.TrimSpace(remaining[:pathEnd])
 
 		// Expand ~ to home directory
-		if strings.HasPrefix(path, "~/") {
+		wasRelative := strings.HasPrefix(path, "~/")
+		if wasRelative {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = filepath.Join(home, path[2:])
 			}
 		}
 
 		// Only return if it looks like a valid path
-		if path != "" && (strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") || strings.Contains(path, "/")) {
+		// After expansion, check for absolute path or if it was originally ~/
+		if path != "" && (strings.HasPrefix(path, "/") || wasRelative || strings.Contains(path, "/")) {
 			return path
 		}
 	}

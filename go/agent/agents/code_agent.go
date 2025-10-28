@@ -11,10 +11,12 @@ import (
 	"wilson/agent/feedback"
 	"wilson/agent/orchestration"
 	"wilson/agent/validation"
+	"wilson/capabilities/filesystem"
 
 	contextpkg "wilson/context"
 	"wilson/core/registry"
 	"wilson/llm"
+	"wilson/lsp"
 	"wilson/ui"
 )
 
@@ -109,6 +111,18 @@ func (a *CodeAgent) CanHandle(task *agent.Task) bool {
 func (a *CodeAgent) ExecuteWithContext(ctx context.Context, taskCtx *base.TaskContext) (*agent.Result, error) {
 	// Store context for feedback access
 	a.SetTaskContext(taskCtx)
+
+	// ✅ CRITICAL FIX: Set project path for file operations and LSP
+	// This ensures write_file and other filesystem tools use the correct directory
+	// and LSP initializes with the target project, not Wilson's directory
+	if taskCtx.ProjectPath != "" && taskCtx.ProjectPath != "." {
+		filesystem.SetProjectPath(taskCtx.ProjectPath)
+		lsp.SetProjectRoot(taskCtx.ProjectPath)
+		defer func() {
+			filesystem.ClearProjectPath()
+			lsp.ClearProjectRoot()
+		}()
+	}
 
 	// Convert to Task and execute
 	task := a.ConvertTaskContextToTask(taskCtx)

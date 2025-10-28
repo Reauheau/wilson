@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"wilson/capabilities/filesystem"
 	"wilson/core/registry"
 	. "wilson/core/types"
 )
@@ -80,10 +81,37 @@ func (t *CompileTool) Execute(ctx context.Context, input map[string]interface{})
 		buildTags = tags
 	}
 
-	// Make absolute path
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
+	// ✅ CRITICAL FIX: Use project path override if available
+	// This ensures we compile the target project, not Wilson's codebase
+	var absPath string
+	if path == "." {
+		// Check for project path override
+		if projectPath := filesystem.GetProjectPath(); projectPath != "" {
+			absPath = projectPath
+		} else {
+			// Fall back to current working directory
+			var err error
+			absPath, err = filepath.Abs(path)
+			if err != nil {
+				return "", fmt.Errorf("invalid path: %w", err)
+			}
+		}
+	} else {
+		// Path was explicitly provided, resolve it
+		// Handle relative paths from project root
+		if !filepath.IsAbs(path) {
+			if projectPath := filesystem.GetProjectPath(); projectPath != "" {
+				absPath = filepath.Join(projectPath, path)
+			} else {
+				var err error
+				absPath, err = filepath.Abs(path)
+				if err != nil {
+					return "", fmt.Errorf("invalid path: %w", err)
+				}
+			}
+		} else {
+			absPath = path
+		}
 	}
 
 	// ✅ ROBUST FIX: Detect if directory contains test files
@@ -136,13 +164,13 @@ func (t *CompileTool) Execute(ctx context.Context, input map[string]interface{})
 
 	// Build result
 	result := map[string]interface{}{
-		"success":       success,
-		"path":          path,
-		"duration_ms":   duration.Milliseconds(),
-		"error_count":   len(errors),
-		"errors":        errors,
-		"output":        outputStr,
-		"command":       fmt.Sprintf("go %s", strings.Join(args, " ")),
+		"success":     success,
+		"path":        path,
+		"duration_ms": duration.Milliseconds(),
+		"error_count": len(errors),
+		"errors":      errors,
+		"output":      outputStr,
+		"command":     fmt.Sprintf("go %s", strings.Join(args, " ")),
 	}
 
 	if success {

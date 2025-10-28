@@ -9,6 +9,27 @@ import (
 	"sync"
 )
 
+// projectRootOverride holds the active project root for LSP initialization
+// Set by agents before LSP operations to use target project instead of Wilson's directory
+var (
+	projectRootOverride string
+	projectRootMu       sync.RWMutex
+)
+
+// SetProjectRoot sets the project root for LSP initialization
+func SetProjectRoot(path string) {
+	projectRootMu.Lock()
+	defer projectRootMu.Unlock()
+	projectRootOverride = path
+}
+
+// ClearProjectRoot clears the project root override
+func ClearProjectRoot() {
+	projectRootMu.Lock()
+	defer projectRootMu.Unlock()
+	projectRootOverride = ""
+}
+
 // Manager manages multiple language server clients
 // Handles lifecycle, routing, and caching for LSP operations
 type Manager struct {
@@ -54,9 +75,14 @@ func (m *Manager) GetClient(ctx context.Context, language string) (*Client, erro
 		return nil, fmt.Errorf("failed to start %s language server: %w", language, err)
 	}
 
-	// Initialize the client with current directory as root
-	// TODO: Make root URI configurable
-	if err := client.Initialize(ctx, "file://"+getCurrentDir()); err != nil {
+	// Initialize the client with project directory as root
+	// Use project path override if set (for target project),
+	// otherwise fall back to current directory (Wilson's directory)
+	rootDir := getCurrentDir()
+	if projectPath := getProjectRootDir(); projectPath != "" {
+		rootDir = projectPath
+	}
+	if err := client.Initialize(ctx, "file://"+rootDir); err != nil {
 		_ = client.Stop()
 		return nil, fmt.Errorf("failed to initialize %s client: %w", language, err)
 	}
@@ -235,4 +261,12 @@ func getCurrentDir() string {
 		return "/"
 	}
 	return dir
+}
+
+// getProjectRootDir returns the project path override if set
+// This allows LSP to work on target projects instead of Wilson's directory
+func getProjectRootDir() string {
+	projectRootMu.RLock()
+	defer projectRootMu.RUnlock()
+	return projectRootOverride
 }
